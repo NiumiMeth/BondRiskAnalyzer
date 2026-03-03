@@ -1,46 +1,40 @@
-import streamlit as st
-import pandas as pd
+from __future__ import annotations
+
+from datetime import date
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
+
 import numpy as np
-from datetime import datetime
+import pandas as pd
+import streamlit as st
 import plotly.graph_objects as go
 
-# ==================== PAGE SETUP ====================
-st.set_page_config(layout="wide", page_title="Treasury Bond Risk Dashboard")
-st.title("Treasury Bond Risk and Yield Shock Engine")
-st.caption("Institutional-grade treasury analytics for bond valuation, sensitivity, and yield-shock impact")
+
+st.set_page_config(page_title="Bond Portfolio Pricer", layout="wide")
 
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.2rem; padding-bottom: 1rem;}
-    .dashboard-section-title {
-        font-size: 1.05rem;
+    .block-container {padding-top: 1.0rem; padding-bottom: 1.2rem;}
+    .stTabs [data-baseweb="tab-list"] {gap: 12px;}
+    .stTabs [data-baseweb="tab"] {
+        background: #111827;
+        border: 1px solid #243244;
+        border-radius: 10px 10px 0 0;
+        padding: 10px 16px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #172033;
+        border-bottom: 2px solid #4F8BFF;
+    }
+    .section-title {
+        font-size: 1.02rem;
         font-weight: 700;
         color: #E6EEF8;
-        margin-top: 0.35rem;
-        margin-bottom: 0.5rem;
+        margin-top: 0.4rem;
+        margin-bottom: 0.6rem;
         border-left: 4px solid #4F8BFF;
         padding-left: 0.55rem;
-    }
-    .kpi-card {
-        background: linear-gradient(135deg, #10294A 0%, #173A66 100%);
-        border: 1px solid rgba(98, 158, 255, 0.35);
-        border-radius: 12px;
-        padding: 0.75rem 0.85rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
-        min-height: 88px;
-    }
-    .kpi-label {
-        color: #A8C9FF;
-        font-size: 0.80rem;
-        font-weight: 600;
-        margin-bottom: 0.3rem;
-    }
-    .kpi-value {
-        color: #FFFFFF;
-        font-size: 1.25rem;
-        font-weight: 750;
-        line-height: 1.2;
     }
     </style>
     """,
@@ -48,597 +42,906 @@ st.markdown(
 )
 
 
-def render_section_title(title):
-    st.markdown(f'<div class="dashboard-section-title">{title}</div>', unsafe_allow_html=True)
+EXPECTED_COLUMNS = [
+    "Port. Index",
+    "Instrument",
+    "Deal No.",
+    "ISIN",
+    "Initial Inv Date",
+    "Maturity Date",
+    "Coupon",
+    "Maturity Value",
+    "YTM",
+    "Yield",
+    "Market value",
+    "Duration",
+]
 
 
-def render_kpi_cards(kpi_items):
-    columns = st.columns(len(kpi_items))
-    for column, (label, value) in zip(columns, kpi_items):
-        column.markdown(
-            f"""
-            <div class="kpi-card">
-                <div class="kpi-label">{label}</div>
-                <div class="kpi-value">{value}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+def render_section_title(title: str) -> None:
+    st.markdown(f'<div class="section-title">{title}</div>', unsafe_allow_html=True)
 
 
-def render_sensitivity_visuals(dataframe, pl_column, section_title):
-    if dataframe.empty or pl_column not in dataframe.columns:
+def render_portfolio_visuals(shock_position_df: pd.DataFrame) -> None:
+    plot_df = (
+        shock_position_df.groupby("ISIN", as_index=False)["Gain/Loss Delta"]
+        .sum()
+        .sort_values("Gain/Loss Delta", key=lambda s: s.abs(), ascending=False)
+    )
+    if plot_df.empty:
         return
 
-    render_section_title(section_title)
-    chart_left, chart_right = st.columns([1.6, 1])
-
-    plot_df = dataframe.copy().sort_values(pl_column, key=lambda s: s.abs(), ascending=True)
-
-    with chart_left:
+    left, right = st.columns([1.5, 1])
+    with left:
         fig_bar = go.Figure()
-        fig_bar.add_trace(go.Bar(
-            x=plot_df[pl_column],
-            y=plot_df["ISIN"],
-            orientation="h",
-            marker_color=np.where(plot_df[pl_column] >= 0, "#35C759", "#FF4D4F"),
-            name="P/L Impact"
-        ))
+        fig_bar.add_trace(
+            go.Bar(
+                x=plot_df["ISIN"],
+                y=plot_df["Gain/Loss Delta"],
+                marker_color=np.where(plot_df["Gain/Loss Delta"] >= 0, "#35C759", "#FF4D4F"),
+                name="G/L Delta",
+            )
+        )
         fig_bar.update_layout(
-            title="P/L Impact by ISIN",
-            xaxis_title="P/L Impact",
-            yaxis_title="ISIN",
+            title="Gain/Loss Delta by ISIN",
+            xaxis_title="ISIN",
+            yaxis_title="Gain/Loss Delta",
             template="plotly_dark",
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=10, r=10, t=45, b=25),
-            showlegend=False
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=10, r=10, t=45, b=10),
+            showlegend=False,
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
-    with chart_right:
-        abs_sum = plot_df[pl_column].abs().sum()
-        if abs_sum > 0:
-            fig_donut = go.Figure(data=[go.Pie(
-                labels=plot_df["ISIN"],
-                values=plot_df[pl_column].abs(),
-                hole=0.55,
-                sort=False,
-                textinfo="label+percent"
-            )])
-            fig_donut.update_layout(
-                title="Share of Impact",
-                template="plotly_dark",
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=10, r=10, t=45, b=25)
+    with right:
+        fig_donut = go.Figure(
+            data=[
+                go.Pie(
+                    labels=plot_df["ISIN"],
+                    values=plot_df["Gain/Loss Delta"].abs(),
+                    hole=0.55,
+                    sort=False,
+                    textinfo="label+percent",
+                )
+            ]
+        )
+        fig_donut.update_layout(
+            title="Share of Total Shock Impact",
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=10, r=10, t=45, b=10),
+        )
+        st.plotly_chart(fig_donut, use_container_width=True)
+
+
+def render_isin_visuals(selected_isin_df: pd.DataFrame, selected_isin: str) -> None:
+    if selected_isin_df.empty:
+        return
+
+    chart_df = selected_isin_df.copy()
+    chart_df["Deal No."] = chart_df["Deal No."].astype(str)
+
+    left, right = st.columns([1.4, 1])
+    with left:
+        fig_deal = go.Figure()
+        fig_deal.add_trace(
+            go.Bar(
+                x=chart_df["Deal No."],
+                y=chart_df["Gain/Loss Delta"],
+                marker_color=np.where(chart_df["Gain/Loss Delta"] >= 0, "#00D1FF", "#FF7B72"),
+                name="Deal G/L Delta",
             )
-            st.plotly_chart(fig_donut, use_container_width=True)
+        )
+        fig_deal.update_layout(
+            title=f"Deal-Level Gain/Loss Delta ({selected_isin})",
+            xaxis_title="Deal No.",
+            yaxis_title="Gain/Loss Delta",
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=10, r=10, t=45, b=10),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_deal, use_container_width=True)
 
-# ==================== FILE UPLOAD ====================
+    with right:
+        fig_yield = go.Figure()
+        fig_yield.add_trace(
+            go.Scatter(
+                x=chart_df["Maturity Date"],
+                y=chart_df["Yield (Base)"] * 100,
+                mode="lines+markers",
+                name="Base Yield",
+                line=dict(color="#3B82F6", width=2),
+            )
+        )
+        fig_yield.add_trace(
+            go.Scatter(
+                x=chart_df["Maturity Date"],
+                y=chart_df["Yield (Shocked)"] * 100,
+                mode="lines+markers",
+                name="Shocked Yield",
+                line=dict(color="#F97316", width=2, dash="dot"),
+            )
+        )
+        fig_yield.update_layout(
+            title="Base vs Shocked Yield Curve",
+            xaxis_title="Maturity Date",
+            yaxis_title="Yield (%)",
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=10, r=10, t=45, b=10),
+        )
+        st.plotly_chart(fig_yield, use_container_width=True)
 
-# Allow Excel or CSV upload
-uploaded_file = st.file_uploader(
-    "Upload Bond Portfolio File (Excel or CSV)", 
-    type=["xlsx", "csv"]
-)
 
-if uploaded_file is not None:
+def parse_number(value: object) -> float:
+    if pd.isna(value):
+        return np.nan
+    text = str(value).strip().replace(",", "")
+    if text == "":
+        return np.nan
+    try:
+        return float(text)
+    except ValueError:
+        return np.nan
 
 
-    with st.spinner("Processing portfolio..."):
-        # Load file
-        if uploaded_file.name.endswith(".csv"):
-            df_raw = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith(".xlsx"):
-            df_raw = pd.read_excel(uploaded_file)
-        else:
-            st.error("Unsupported file type. Please upload an Excel or CSV file.")
-            st.stop()
+def parse_rate(value: object) -> float:
+    if pd.isna(value):
+        return np.nan
+    text = str(value).strip()
+    if text == "":
+        return np.nan
+    has_percent = "%" in text
+    text = text.replace("%", "").replace(",", "")
+    try:
+        number = float(text)
+    except ValueError:
+        return np.nan
+    if has_percent or number > 1:
+        return number / 100.0
+    return number
 
-        # COLUMN MAPPING
-        canonical_columns = {
-            "isin": "ISIN",
-            "initial inv date": "Initial Inv Date",
-            "initial investment date": "Initial Inv Date",
-            "purchase date": "Initial Inv Date",
-            "purchased date": "Initial Inv Date",
-            "maturity date": "Maturity Date",
-            "coupon": "Coupon",
-            "maturity value": "Maturity Value",
-            "maturity value ": "Maturity Value",
-            "face value": "Maturity Value",
-            "ytm": "YTM",
-            "selling ytm": "YTM",
-            "purchased ytm": "Purchased YTM",
-            "purchase ytm": "Purchased YTM",
-            "initial ytm": "Purchased YTM",
-            "initial inv value": "Initial Inv Value",
-            "initial investment value": "Initial Inv Value",
-            "book value": "Book Value"
+
+def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    rename_map = {
+        "Maturity Value ": "Maturity Value",
+    }
+    df = df.rename(columns=rename_map)
+    return df
+
+
+def load_portfolio(uploaded_file) -> pd.DataFrame:
+    file_name = uploaded_file.name.lower()
+    if file_name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+    else:
+        df = pd.read_excel(uploaded_file)
+
+    df = clean_columns(df)
+
+    missing_columns = [col for col in EXPECTED_COLUMNS if col not in df.columns]
+    if missing_columns:
+        raise ValueError(
+            "Input file is missing required columns: " + ", ".join(missing_columns)
+        )
+
+    df = df[EXPECTED_COLUMNS].copy()
+    df = df.dropna(how="all")
+
+    df["ISIN"] = df["ISIN"].astype(str).str.strip()
+    df = df[df["ISIN"].notna() & (df["ISIN"] != "") & (df["ISIN"] != "nan")].copy()
+
+    df["Initial Inv Date"] = pd.to_datetime(df["Initial Inv Date"], dayfirst=True, errors="coerce")
+    df["Maturity Date"] = pd.to_datetime(df["Maturity Date"], dayfirst=True, errors="coerce")
+
+    for column in ["Maturity Value", "Market value", "Duration"]:
+        df[column] = df[column].map(parse_number)
+
+    df["Coupon"] = df["Coupon"].map(parse_rate)
+    df["YTM"] = df["YTM"].map(parse_rate)
+    df["Yield"] = df["Yield"].map(parse_rate)
+
+    df = df.dropna(subset=["Initial Inv Date", "Maturity Date", "Maturity Value", "Coupon", "YTM", "Yield"])
+    return df
+
+
+def get_future_coupon_dates(maturity_date: pd.Timestamp, valuation_date: pd.Timestamp) -> list[pd.Timestamp]:
+    dates = []
+    current = pd.Timestamp(maturity_date).normalize()
+    valuation_date = pd.Timestamp(valuation_date).normalize()
+
+    while current > valuation_date:
+        dates.append(current)
+        current = current - pd.DateOffset(months=6)
+
+    return sorted(dates)
+
+
+def build_valuation_table(
+    face_value: float,
+    coupon_rate: float,
+    annual_yield: float,
+    maturity_date: pd.Timestamp,
+    valuation_date: pd.Timestamp,
+) -> tuple[pd.DataFrame, float, float, float, float]:
+    coupon_dates = get_future_coupon_dates(maturity_date, valuation_date)
+    if not coupon_dates:
+        empty = pd.DataFrame(
+            columns=[
+                "Cash Flow Date",
+                "Coupon CF",
+                "Principal CF",
+                "Total CF",
+                "Exponent (n + frac)",
+                "Discount Factor",
+                "PV",
+            ]
+        )
+        return empty, 0.0, 0.0, 0.0, 0.0
+
+    next_coupon = coupon_dates[0]
+    days_to_next_coupon = max((next_coupon - valuation_date).days, 0)
+    frac = days_to_next_coupon / 182.0
+
+    period_coupon = face_value * coupon_rate / 2.0
+
+    rows = []
+    dirty_price = 0.0
+    for index, cash_date in enumerate(coupon_dates):
+        exponent = index + frac
+        coupon_cf = period_coupon
+        principal_cf = face_value if cash_date == coupon_dates[-1] else 0.0
+        total_cf = coupon_cf + principal_cf
+        discount_factor = (1 + annual_yield / 2.0) ** exponent
+        pv = total_cf / discount_factor
+        dirty_price += pv
+
+        rows.append(
+            {
+                "Cash Flow Date": cash_date.date(),
+                "Coupon CF": coupon_cf,
+                "Principal CF": principal_cf,
+                "Total CF": total_cf,
+                "Exponent (n + frac)": exponent,
+                "Discount Factor": discount_factor,
+                "PV": pv,
+            }
+        )
+
+    accrued_interest = period_coupon * (1.0 - frac)
+    accrued_interest = max(0.0, min(accrued_interest, period_coupon))
+    clean_price = dirty_price - accrued_interest
+
+    table = pd.DataFrame(rows)
+    return table, dirty_price, clean_price, accrued_interest, frac
+
+
+def get_coupon_window(
+    settlement_date: pd.Timestamp,
+    maturity_date: pd.Timestamp,
+    frequency: int = 2,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    months = int(12 / frequency)
+    settlement = pd.Timestamp(settlement_date).normalize()
+    maturity = pd.Timestamp(maturity_date).normalize()
+
+    if settlement >= maturity:
+        raise ValueError("Settlement date must be earlier than maturity date.")
+
+    next_coupon = maturity
+    while True:
+        prev_coupon = next_coupon - pd.DateOffset(months=months)
+        if prev_coupon <= settlement < next_coupon:
+            return prev_coupon, next_coupon
+        next_coupon = prev_coupon
+
+
+def excel_price_actual_actual(
+    settlement_date: pd.Timestamp,
+    maturity_date: pd.Timestamp,
+    coupon_rate: float,
+    annual_yield: float,
+    redemption: float = 100.0,
+    frequency: int = 2,
+) -> tuple[float, float, float]:
+    settlement = pd.Timestamp(settlement_date).normalize()
+    maturity = pd.Timestamp(maturity_date).normalize()
+
+    if settlement >= maturity:
+        return 0.0, 0.0, 0.0
+
+    prev_coupon, next_coupon = get_coupon_window(settlement, maturity, frequency)
+
+    e = (next_coupon - prev_coupon).days
+    a = (settlement - prev_coupon).days
+    dsc = (next_coupon - settlement).days
+
+    if e <= 0:
+        return 0.0, 0.0, 0.0
+
+    coupon_per_100 = 100.0 * coupon_rate / frequency
+    discount_base = 1.0 + annual_yield / frequency
+    discount_base = max(discount_base, 1e-8)
+
+    n = 0
+    current = maturity
+    while current > settlement:
+        n += 1
+        current = current - pd.DateOffset(months=int(12 / frequency))
+
+    if n <= 0:
+        return 0.0, 0.0, 0.0
+
+    exponent = (n - 1) + (dsc / e)
+    pv_red_plus_coupon = (redemption + coupon_per_100) / (discount_base**exponent)
+
+    pv_intermediate = 0.0
+    for k in range(1, n):
+        k_exp = (k - 1) + (dsc / e)
+        pv_intermediate += coupon_per_100 / (discount_base**k_exp)
+
+    accrued_100 = coupon_per_100 * (a / e)
+    clean_price_100 = pv_red_plus_coupon + pv_intermediate - accrued_100
+    full_price_100 = clean_price_100 + accrued_100
+
+    return clean_price_100, accrued_100, full_price_100
+
+
+def run_portfolio_valuation(df: pd.DataFrame, valuation_date: pd.Timestamp) -> pd.DataFrame:
+    output = df.copy()
+
+    clean_price_100 = []
+    accrued_100 = []
+    price_100 = []
+    clean_value = []
+    full_value = []
+    initial_inv_value = []
+    book_value = []
+    gain_loss = []
+
+    for _, row in output.iterrows():
+        face = float(row["Maturity Value"])
+        purchase_date = pd.Timestamp(row["Initial Inv Date"])
+        maturity_date = pd.Timestamp(row["Maturity Date"])
+        coupon_rate = float(row["Coupon"])
+        purchased_ytm = float(row["YTM"])
+        selling_ytm = float(row["Yield"])
+
+        clean_100_now, accrued_now_100, full_100_now = excel_price_actual_actual(
+            settlement_date=valuation_date,
+            maturity_date=maturity_date,
+            coupon_rate=coupon_rate,
+            annual_yield=selling_ytm,
+            redemption=100.0,
+            frequency=2,
+        )
+
+        clean_100_now = round(clean_100_now, 4)
+        accrued_now_100 = round(accrued_now_100, 4)
+        full_100_now = round(clean_100_now + accrued_now_100, 4)
+
+        init_price_100, _, _ = excel_price_actual_actual(
+            settlement_date=purchase_date,
+            maturity_date=maturity_date,
+            coupon_rate=coupon_rate,
+            annual_yield=purchased_ytm,
+            redemption=100.0,
+            frequency=2,
+        )
+        init_price_100 = round(init_price_100, 4)
+        init_value = init_price_100 * (face / 100.0)
+
+        total_days = max((maturity_date - purchase_date).days, 1)
+        elapsed_days = (pd.Timestamp(valuation_date) - purchase_date).days
+        elapsed_days = min(max(elapsed_days, 0), total_days)
+
+        book_val = (((face - init_value) / total_days) * elapsed_days) + init_value
+
+        clean_val = clean_100_now * (face / 100.0)
+        full_val = full_100_now * (face / 100.0)
+        gl_value = clean_val - book_val
+
+        clean_price_100.append(clean_100_now)
+        accrued_100.append(accrued_now_100)
+        price_100.append(full_100_now)
+        clean_value.append(clean_val)
+        full_value.append(full_val)
+        initial_inv_value.append(init_value)
+        book_value.append(book_val)
+        gain_loss.append(gl_value)
+
+    output["Clean Price"] = clean_price_100
+    output["Accrued Int"] = accrued_100
+    output["Price 100%"] = price_100
+    output["Clean Value"] = clean_value
+    output["Full Value"] = full_value
+    output["Initial Inv Value"] = initial_inv_value
+    output["Book Value"] = book_value
+    output["Gain/Loss"] = gain_loss
+
+    return output
+
+
+def run_yield_shock_analysis(
+    valued_df: pd.DataFrame,
+    valuation_date: pd.Timestamp,
+    shock_bps: float,
+) -> pd.DataFrame:
+    output = valued_df.copy()
+    shock_rate = shock_bps / 10000.0
+
+    shocked_yield = []
+    base_clean_price_100 = []
+    base_accrued_100 = []
+    base_price_100 = []
+    base_clean_value = []
+    base_full_value = []
+    base_gl = []
+
+    shocked_clean_price_100 = []
+    shocked_accrued_100 = []
+    shocked_price_100 = []
+    shocked_clean_value = []
+    shocked_full_value = []
+    shocked_gl = []
+
+    for _, row in output.iterrows():
+        y_base = float(row["Yield"])
+        y_shocked = max(-0.99, y_base + shock_rate)
+
+        face = float(row["Maturity Value"])
+
+        clean_100_base, accrued_100_base, full_100_base = excel_price_actual_actual(
+            settlement_date=valuation_date,
+            maturity_date=row["Maturity Date"],
+            coupon_rate=float(row["Coupon"]),
+            annual_yield=y_base,
+            redemption=100.0,
+            frequency=2,
+        )
+        clean_100_base = round(clean_100_base, 4)
+        accrued_100_base = round(accrued_100_base, 4)
+        full_100_base = round(clean_100_base + accrued_100_base, 4)
+
+        clean_100_shocked, accrued_100_shocked, full_100_shocked = excel_price_actual_actual(
+            settlement_date=valuation_date,
+            maturity_date=row["Maturity Date"],
+            coupon_rate=float(row["Coupon"]),
+            annual_yield=y_shocked,
+            redemption=100.0,
+            frequency=2,
+        )
+        clean_100_shocked = round(clean_100_shocked, 4)
+        accrued_100_shocked = round(accrued_100_shocked, 4)
+        full_100_shocked = round(clean_100_shocked + accrued_100_shocked, 4)
+
+        shocked_yield.append(y_shocked)
+
+        base_clean_price_100.append(clean_100_base)
+        base_accrued_100.append(accrued_100_base)
+        base_price_100.append(full_100_base)
+        base_clean_value.append(clean_100_base * (face / 100.0))
+        base_full_value.append(full_100_base * (face / 100.0))
+        base_gl.append((clean_100_base * (face / 100.0)) - float(row["Book Value"]))
+
+        shocked_clean_price_100.append(clean_100_shocked)
+        shocked_accrued_100.append(accrued_100_shocked)
+        shocked_price_100.append(full_100_shocked)
+        shocked_clean_value.append(clean_100_shocked * (face / 100.0))
+        shocked_full_value.append(full_100_shocked * (face / 100.0))
+        shocked_gl.append((clean_100_shocked * (face / 100.0)) - float(row["Book Value"]))
+
+    output["Yield (Base)"] = output["Yield"]
+    output["Yield (Shocked)"] = shocked_yield
+
+    output["Price 100 (Base)"] = base_price_100
+    output["Price 100 (Shocked)"] = shocked_price_100
+    output["Price 100 Delta"] = output["Price 100 (Shocked)"] - output["Price 100 (Base)"]
+
+    output["Clean Price (Base)"] = base_clean_price_100
+    output["Clean Price (Shocked)"] = shocked_clean_price_100
+    output["Clean Price Delta"] = output["Clean Price (Shocked)"] - output["Clean Price (Base)"]
+
+    output["Clean Value (Base)"] = base_clean_value
+    output["Clean Value (Shocked)"] = shocked_clean_value
+    output["Clean Value Delta"] = output["Clean Value (Shocked)"] - output["Clean Value (Base)"]
+
+    output["Full Value (Base)"] = base_full_value
+    output["Full Value (Shocked)"] = shocked_full_value
+    output["Full Value Delta"] = output["Full Value (Shocked)"] - output["Full Value (Base)"]
+
+    output["Accrued Int (Base)"] = base_accrued_100
+    output["Accrued Int (Shocked)"] = shocked_accrued_100
+    output["Accrued Interest Delta"] = (
+        output["Accrued Int (Shocked)"] - output["Accrued Int (Base)"]
+    )
+
+    output["Gain/Loss vs Book (Base)"] = base_gl
+    output["Gain/Loss vs Book (Shocked)"] = shocked_gl
+    output["Gain/Loss Delta"] = output["Gain/Loss vs Book (Shocked)"] - output["Gain/Loss vs Book (Base)"]
+
+    return output
+
+
+def aggregate_shock_by_isin(shock_df: pd.DataFrame) -> pd.DataFrame:
+    grouped = (
+        shock_df.groupby("ISIN", as_index=False)
+        .agg(
+            Positions=("Deal No.", "count"),
+            Face_Value=("Maturity Value", "sum"),
+            Book_Value=("Book Value", "sum"),
+            Price100_Base=("Price 100 (Base)", "mean"),
+            Price100_Shocked=("Price 100 (Shocked)", "mean"),
+            CleanPrice_Base=("Clean Price (Base)", "mean"),
+            CleanPrice_Shocked=("Clean Price (Shocked)", "mean"),
+            Clean_Base=("Clean Value (Base)", "sum"),
+            Clean_Shocked=("Clean Value (Shocked)", "sum"),
+            Full_Base=("Full Value (Base)", "sum"),
+            Full_Shocked=("Full Value (Shocked)", "sum"),
+            Accrued_Base=("Accrued Int (Base)", "mean"),
+            Accrued_Shocked=("Accrued Int (Shocked)", "mean"),
+            GL_Base=("Gain/Loss vs Book (Base)", "sum"),
+            GL_Shocked=("Gain/Loss vs Book (Shocked)", "sum"),
+        )
+        .sort_values("ISIN")
+    )
+
+    grouped["Price100_Delta"] = grouped["Price100_Shocked"] - grouped["Price100_Base"]
+    grouped["CleanPrice_Delta"] = grouped["CleanPrice_Shocked"] - grouped["CleanPrice_Base"]
+    grouped["Clean_Delta"] = grouped["Clean_Shocked"] - grouped["Clean_Base"]
+    grouped["Full_Delta"] = grouped["Full_Shocked"] - grouped["Full_Base"]
+    grouped["Accrued_Delta"] = grouped["Accrued_Shocked"] - grouped["Accrued_Base"]
+    grouped["GL_Delta"] = grouped["GL_Shocked"] - grouped["GL_Base"]
+
+    return grouped
+
+
+def aggregate_by_isin(valued_df: pd.DataFrame) -> pd.DataFrame:
+    grouped = (
+        valued_df.groupby("ISIN", as_index=False)
+        .agg(
+            Positions=("Deal No.", "count"),
+            Face_Value=("Maturity Value", "sum"),
+            Clean_Value=("Clean Value", "sum"),
+            Full_Value=("Full Value", "sum"),
+            Book_Value=("Book Value", "sum"),
+            Gain_Loss=("Gain/Loss", "sum"),
+            Input_Market_Value=("Market value", "max"),
+        )
+        .sort_values("ISIN")
+    )
+    grouped["Clean_minus_Book"] = grouped["Clean_Value"] - grouped["Book_Value"]
+    grouped["Full_minus_Book"] = grouped["Full_Value"] - grouped["Book_Value"]
+    return grouped
+
+
+def to_excel_bytes(
+    summary_df: pd.DataFrame,
+    detail_df: pd.DataFrame,
+    shock_position_df: pd.DataFrame,
+    shock_isin_df: pd.DataFrame,
+) -> tuple[bytes, str, str]:
+    try:
+        import openpyxl  # noqa: F401
+
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            summary_df.to_excel(writer, index=False, sheet_name="ISIN Summary")
+            detail_df.to_excel(writer, index=False, sheet_name="Position Details")
+            shock_position_df.to_excel(writer, index=False, sheet_name="Shock Position")
+            shock_isin_df.to_excel(writer, index=False, sheet_name="Shock ISIN")
+        return (
+            buffer.getvalue(),
+            "bond_portfolio_yield_shock_output.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except ModuleNotFoundError:
+        buffer = BytesIO()
+        with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as zip_file:
+            zip_file.writestr("isin_summary.csv", summary_df.to_csv(index=False))
+            zip_file.writestr("position_details.csv", detail_df.to_csv(index=False))
+            zip_file.writestr("shock_position.csv", shock_position_df.to_csv(index=False))
+            zip_file.writestr("shock_isin.csv", shock_isin_df.to_csv(index=False))
+        return (
+            buffer.getvalue(),
+            "bond_portfolio_yield_shock_output_csv.zip",
+            "application/zip",
+        )
+
+
+def main() -> None:
+    st.title("Bond Portfolio Pricing (Semi-Annual)")
+    st.caption(
+        "Upload CSV/Excel, calculate semi-annual PVs automatically, and view book value by ISIN."
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload portfolio file",
+        type=["csv", "xlsx", "xls"],
+        help="Required columns: Port. Index, Instrument, Deal No., ISIN, Initial Inv Date, Maturity Date, Coupon, Maturity Value, YTM, Yield, Market value, Duration",
+    )
+
+    valuation_date = st.date_input("Valuation Date", value=date.today())
+
+    if not uploaded_file:
+        st.info("Please upload a CSV or Excel file to start valuation.")
+        return
+
+    try:
+        portfolio_df = load_portfolio(uploaded_file)
+    except Exception as error:
+        st.error(f"Could not read file: {error}")
+        return
+
+    if portfolio_df.empty:
+        st.warning("No valid bond rows were found after cleaning.")
+        return
+
+    valuation_timestamp = pd.Timestamp(valuation_date)
+    valued_df = run_portfolio_valuation(portfolio_df, valuation_timestamp)
+    summary_df = aggregate_by_isin(valued_df)
+
+    render_section_title("Yield Shock Controls")
+    control_left, control_right = st.columns([3, 1])
+    with control_left:
+        shock_pct = st.number_input(
+            "Parallel Yield Shock (%)",
+            min_value=-10.0,
+            max_value=10.0,
+            value=0.0,
+            step=0.05,
+            format="%.2f",
+            help="Enter the yield change in percent (e.g., 0.50 means +50 bps).",
+        )
+        shock_bps = int(round(shock_pct * 100))
+        st.caption(f"Selected shift: {shock_pct:+.2f}% ({shock_bps:+} bps)")
+    with control_right:
+        st.metric("Shocked Shift", f"{shock_pct:+.2f}%")
+
+    shock_position_df = run_yield_shock_analysis(
+        valued_df=valued_df,
+        valuation_date=valuation_timestamp,
+        shock_bps=float(shock_bps),
+    )
+    shock_isin_df = aggregate_shock_by_isin(shock_position_df)
+
+    page_portfolio, page_isin = st.tabs(
+        ["Page 1 - Yield Shock (Portfolio)", "Page 2 - Yield Shock (ISIN Wise)"]
+    )
+
+    with page_portfolio:
+        st.subheader("Portfolio-wide impact")
+        total_book = float(shock_position_df["Book Value"].sum())
+        total_full_base = float(shock_position_df["Full Value (Base)"].sum())
+        total_full_shocked = float(shock_position_df["Full Value (Shocked)"].sum())
+        total_clean_base = float(shock_position_df["Clean Value (Base)"].sum())
+        total_clean_shocked = float(shock_position_df["Clean Value (Shocked)"].sum())
+        total_gl_base = float(shock_position_df["Gain/Loss vs Book (Base)"].sum())
+        total_gl_shocked = float(shock_position_df["Gain/Loss vs Book (Shocked)"].sum())
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Book Value", f"{total_book:,.2f}")
+        m2.metric(
+            "Full Value (Shocked)",
+            f"{total_full_shocked:,.2f}",
+            delta=f"{(total_full_shocked - total_full_base):,.2f}",
+        )
+        m3.metric(
+            "Clean Value (Shocked)",
+            f"{total_clean_shocked:,.2f}",
+            delta=f"{(total_clean_shocked - total_clean_base):,.2f}",
+        )
+        m4.metric(
+            "Gain/Loss vs Book (Shocked)",
+            f"{total_gl_shocked:,.2f}",
+            delta=f"{(total_gl_shocked - total_gl_base):,.2f}",
+        )
+
+        render_section_title("Shock Impact Visuals")
+        render_portfolio_visuals(shock_position_df)
+
+        st.subheader("All positions affected by yield shock")
+        portfolio_cols = [
+            "Port. Index",
+            "Instrument",
+            "Deal No.",
+            "ISIN",
+            "Initial Inv Date",
+            "Maturity Date",
+            "Maturity Value",
+            "Coupon",
+            "Yield (Base)",
+            "Yield (Shocked)",
+            "Price 100 (Base)",
+            "Price 100 (Shocked)",
+            "Price 100 Delta",
+            "Clean Price (Base)",
+            "Clean Price (Shocked)",
+            "Clean Price Delta",
+            "Accrued Int (Base)",
+            "Accrued Int (Shocked)",
+            "Accrued Interest Delta",
+            "Full Value (Base)",
+            "Full Value (Shocked)",
+            "Full Value Delta",
+            "Clean Value (Base)",
+            "Clean Value (Shocked)",
+            "Clean Value Delta",
+            "Book Value",
+            "Gain/Loss vs Book (Base)",
+            "Gain/Loss vs Book (Shocked)",
+            "Gain/Loss Delta",
+        ]
+        portfolio_formats = {
+            "Maturity Value": "{:,.2f}",
+            "Price 100 (Base)": "{:,.4f}",
+            "Price 100 (Shocked)": "{:,.4f}",
+            "Price 100 Delta": "{:,.4f}",
+            "Clean Price (Base)": "{:,.4f}",
+            "Clean Price (Shocked)": "{:,.4f}",
+            "Clean Price Delta": "{:,.4f}",
+            "Full Value (Base)": "{:,.2f}",
+            "Full Value (Shocked)": "{:,.2f}",
+            "Full Value Delta": "{:,.2f}",
+            "Clean Value (Base)": "{:,.2f}",
+            "Clean Value (Shocked)": "{:,.2f}",
+            "Clean Value Delta": "{:,.2f}",
+            "Book Value": "{:,.2f}",
+            "Gain/Loss vs Book (Base)": "{:,.2f}",
+            "Gain/Loss vs Book (Shocked)": "{:,.2f}",
+            "Gain/Loss Delta": "{:,.2f}",
         }
-        df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
-        df_raw.rename(columns=canonical_columns, inplace=True)
-        existing_cols = list(dict.fromkeys([v for v in canonical_columns.values() if v in df_raw.columns]))
-        df = df_raw[existing_cols].copy()
-
-        essential = ["ISIN", "Maturity Date", "Coupon", "Maturity Value", "YTM"]
-        missing = [c for c in essential if c not in df.columns]
-        if missing:
-            st.error(f"Uploaded file is missing required columns: {', '.join(missing)}")
-            st.stop()
-
-        # DATA CLEANING
-        df["Maturity Value"] = pd.to_numeric(df["Maturity Value"].astype(str).str.replace(",", ""), errors="coerce")
-        df["Coupon"] = pd.to_numeric(df["Coupon"].astype(str).str.replace("%", ""), errors="coerce") / 100
-        df["YTM"] = pd.to_numeric(df["YTM"], errors="coerce") / 100
-        df["Maturity Date"] = pd.to_datetime(df["Maturity Date"], errors="coerce")
-        if "Initial Inv Date" in df.columns:
-            df["Initial Inv Date"] = pd.to_datetime(df["Initial Inv Date"], errors="coerce")
-        if "Initial Inv Value" in df.columns:
-            df["Initial Inv Value"] = pd.to_numeric(df["Initial Inv Value"].astype(str).str.replace(",", ""), errors="coerce")
-        if "Book Value" in df.columns:
-            df["Book Value"] = pd.to_numeric(df["Book Value"].astype(str).str.replace(",", ""), errors="coerce")
-        if "Purchased YTM" in df.columns:
-            df["Purchased YTM"] = pd.to_numeric(df["Purchased YTM"], errors="coerce") / 100
-        df = df.dropna(subset=essential)
-
-        # SPOT DATE
-        spot_date = st.date_input("Spot / Settlement Date", value=datetime.today())
-        spot_date = pd.to_datetime(spot_date)
-        df["Years to Maturity"] = (df["Maturity Date"] - spot_date).dt.days 
-        df = df[df["Years to Maturity"] > 0]
-
-        # ISIN FILTER
-        st.sidebar.markdown("**Filter by ISIN**")
-        isin_options = df["ISIN"].unique().tolist()
-        selected_isins = st.sidebar.multiselect("Select ISINs to view", isin_options, default=isin_options)
-        df = df[df["ISIN"].isin(selected_isins)]
-
-        # PAGE SELECTOR
-        st.header("Select Analysis")
-        page = st.radio("Choose analysis:", ["Total Yield Shock", "ISIN-wise Yield Shock"], horizontal=True)
-
-        # BOND PRICING FUNCTIONS
-        def _bond_cashflow_schedule(face, coupon_rate, years, freq=2):
-            periods = years * freq
-            coupon = face * coupon_rate / freq
-            n_full = int(np.floor(periods))
-            fractional = periods - n_full
-
-            times = [t for t in range(1, n_full + 1)]
-            cashflows = [coupon] * n_full
-
-            if fractional > 1e-12:
-                times.append(periods)
-                cashflows.append(coupon + face)
-            elif n_full > 0:
-                cashflows[-1] += face
-            else:
-                times = [periods]
-                cashflows = [coupon + face]
-
-            return np.array(times, dtype=float), np.array(cashflows, dtype=float)
-
-        def bond_price(face, coupon_rate, ytm, years, freq=2):
-            times, cashflows = _bond_cashflow_schedule(face, coupon_rate, years, freq)
-            discount = (1 + ytm / freq) ** times
-            return float(np.sum(cashflows / discount))
-
-        def macaulay_duration(face, coupon_rate, ytm, years, freq=2):
-            times, cashflows = _bond_cashflow_schedule(face, coupon_rate, years, freq)
-            discount = (1 + ytm / freq) ** times
-            pv = cashflows / discount
-            price = np.sum(pv)
-            macaulay_periods = np.sum(times * pv) / price
-            return float(macaulay_periods / freq)
-
-        def modified_duration(face, coupon_rate, ytm, years, freq=2):
-            return macaulay_duration(face, coupon_rate, ytm, years, freq) / (1 + ytm/freq)
-
-        def convexity(face, coupon_rate, ytm, years, freq=2):
-            price = bond_price(face, coupon_rate, ytm, years, freq)
-            dy = 0.0001
-            price_up = bond_price(face, coupon_rate, ytm + dy, years, freq)
-            price_down = bond_price(face, coupon_rate, ytm - dy, years, freq)
-            return (price_up + price_down - 2 * price) / (price * (dy ** 2))
-
-        def _add_months(date_value, months):
-            return (pd.Timestamp(date_value) + pd.DateOffset(months=months)).normalize()
-
-        def excel_price_clean(settlement_date, maturity_date, coupon_rate, yield_rate, redemption=100, freq=2, basis=1):
-            if basis != 1:
-                return np.nan
-
-            settlement = pd.Timestamp(settlement_date).normalize()
-            maturity = pd.Timestamp(maturity_date).normalize()
-            if pd.isna(settlement) or pd.isna(maturity) or settlement >= maturity:
-                return np.nan
-
-            months = int(12 / freq)
-
-            prev_coupon = maturity
-            safety = 0
-            while prev_coupon > settlement and safety < 500:
-                prev_coupon = _add_months(prev_coupon, -months)
-                safety += 1
-
-            next_coupon = _add_months(prev_coupon, months)
-
-            e = (next_coupon - prev_coupon).days
-            a = (settlement - prev_coupon).days
-            dsc = (next_coupon - settlement).days
-
-            if e <= 0 or dsc < 0:
-                return np.nan
-
-            n = 0
-            coupon_date = next_coupon
-            while coupon_date <= maturity and n < 500:
-                n += 1
-                coupon_date = _add_months(coupon_date, months)
-
-            if n <= 0:
-                return np.nan
-
-            c = 100 * coupon_rate / freq
-            y = 1 + yield_rate / freq
-            frac = dsc / e
-
-            pv = 0.0
-            for k in range(1, n + 1):
-                exponent = (k - 1) + frac
-                pv += c / (y ** exponent)
-            pv += redemption / (y ** ((n - 1) + frac))
-
-            accrued_interest = c * (a / e)
-            clean_price = pv - accrued_interest
-            return float(clean_price)
-
-        def calculated_initial_inv_value(row):
-            if "Initial Inv Date" not in row.index:
-                return np.nan
-
-            inv_date = row["Initial Inv Date"]
-            mat_date = row["Maturity Date"]
-            face = row["Maturity Value"]
-            coupon_rate = row["Coupon"]
-            yld = row["Purchased YTM"] if "Purchased YTM" in row.index and pd.notnull(row.get("Purchased YTM", np.nan)) else row["YTM"]
-
-            if pd.isna(inv_date) or pd.isna(mat_date) or pd.isna(face) or pd.isna(coupon_rate) or pd.isna(yld):
-                return np.nan
-
-            price_per_100 = excel_price_clean(inv_date, mat_date, coupon_rate, yld, redemption=100, freq=2, basis=1)
-            if pd.isna(price_per_100):
-                return np.nan
-
-            return float(round(price_per_100, 4) * (face / 100))
-
-        def calculated_book_value(row, spot_dt):
-            mat_date = row["Maturity Date"]
-            face = row["Maturity Value"]
-            coupon_rate = row["Coupon"]
-            yld = row["Purchased YTM"] if "Purchased YTM" in row.index and pd.notnull(row.get("Purchased YTM", np.nan)) else row["YTM"]
-
-            if pd.isna(mat_date) or pd.isna(face) or pd.isna(coupon_rate) or pd.isna(yld):
-                return np.nan
-
-            price_per_100 = excel_price_clean(spot_dt, mat_date, coupon_rate, yld, redemption=100, freq=2, basis=1)
-            if pd.isna(price_per_100):
-                return np.nan
-
-            return float(round(price_per_100, 4) * (face / 100))
-
-        # BASE CALCULATIONS
-        df["Price"] = df.apply(lambda row: bond_price(row["Maturity Value"], row["Coupon"], row["YTM"], row["Years to Maturity"]), axis=1)
-        df["Market Value"] = df["Price"]
-        df["Macaulay Duration"] = df.apply(lambda row: macaulay_duration(row["Maturity Value"], row["Coupon"], row["YTM"], row["Years to Maturity"]), axis=1)
-        df["Modified Duration"] = df.apply(lambda row: modified_duration(row["Maturity Value"], row["Coupon"], row["YTM"], row["Years to Maturity"]), axis=1)
-        df["Convexity"] = df.apply(lambda row: convexity(row["Maturity Value"], row["Coupon"], row["YTM"], row["Years to Maturity"]), axis=1)
-        df["DV01"] = df["Modified Duration"] * df["Market Value"] * 0.0001
-        if "Initial Inv Date" in df.columns:
-            df["Initial Inv Value (Calculated)"] = df.apply(calculated_initial_inv_value, axis=1)
-            df["Book Value (Calculated)"] = df.apply(lambda row: calculated_book_value(row, spot_date), axis=1)
-            df["MTM vs Book (Calculated)"] = df["Market Value"] - df["Book Value (Calculated)"]
-            if "Book Value" in df.columns:
-                df["Book Value Diff"] = df["Book Value (Calculated)"] - df["Book Value"]
-        else:
-            st.info("To calculate Book Value from upload, include at least 'Initial Inv Date'. Optional fields: 'Initial Inv Value', 'Purchased YTM', and uploaded 'Book Value' for comparison.")
-
-        # Per-ISIN summary table
-        def maturity_date_summary(date_series):
-            valid_dates = pd.to_datetime(date_series, errors="coerce").dropna()
-            if valid_dates.empty:
-                return ""
-            unique_dates = sorted(valid_dates.dt.strftime("%Y-%m-%d").unique().tolist())
-            if len(unique_dates) == 1:
-                return unique_dates[0]
-            return f"{unique_dates[0]} to {unique_dates[-1]}"
-
-        def render_isin_summary(dataframe, market_value_col):
-            isin_summary = (
-                dataframe.groupby("ISIN", as_index=False)
-                .agg(
-                    Maturity_Date=("Maturity Date", maturity_date_summary),
-                    Total_Maturity_Value=("Maturity Value", "sum"),
-                    Total_Market_Value=(market_value_col, "sum"),
-                )
-                .rename(
-                    columns={
-                        "Maturity_Date": "Maturity Date",
-                        "Total_Maturity_Value": "Total Maturity Value",
-                        "Total_Market_Value": "Total Market Value",
-                    }
-                )
-            )
-            st.subheader("ISIN Summary (Separate ISIN Totals)")
-            isin_summary_display = isin_summary.copy()
-            for col in ["Total Maturity Value", "Total Market Value"]:
-                isin_summary_display[col] = isin_summary_display[col].apply(
-                    lambda x: f"{x:,.2f}" if pd.notnull(x) else ""
-                )
-            st.dataframe(isin_summary_display, use_container_width=True)
-
-        def render_grouped_portfolio_table(dataframe, mode="total"):
-            st.subheader("Portfolio Details (Grouped by ISIN)")
-
-            base_columns = [
-                "ISIN",
-                "Initial Inv Date", "Maturity Date", "Coupon", "Maturity Value", "YTM",
-                "Years to Maturity",
-                "Purchased YTM", "Initial Inv Value", "Initial Inv Value (Calculated)",
-                "Book Value", "Book Value (Calculated)", "Market Value", "MTM vs Book (Calculated)",
-                "Modified Duration", "DV01"
-            ]
-
-            total_shock_columns = [
-                "New_YTM", "New Price", "Price Change", "P/L Impact", "Duration Approx P/L", "% Contribution to P/L"
-            ]
-
-            isin_shock_columns = [
-                "ISIN_Specific_Shock", "ISIN_Specific_YTM", "ISIN_Specific_Price",
-                "ISIN_Specific_Price Change", "ISIN_Specific_P/L Impact",
-                "ISIN_Specific_Duration Approx P/L", "ISIN_Specific_% Contribution to P/L"
-            ]
-
-            selected_columns = base_columns + (total_shock_columns if mode == "total" else isin_shock_columns)
-            selected_columns = [c for c in selected_columns if c in dataframe.columns]
-
-            date_cols = ["Initial Inv Date", "Maturity Date"]
-            pct_cols = [
-                "Coupon", "YTM", "Purchased YTM", "New_YTM", "ISIN_Specific_YTM",
-                "ISIN_Specific_Shock", "% Contribution to P/L", "ISIN_Specific_% Contribution to P/L"
-            ]
-            currency_cols = [
-                "Maturity Value", "Initial Inv Value", "Initial Inv Value (Calculated)",
-                "Book Value", "Book Value (Calculated)", "Market Value", "MTM vs Book (Calculated)",
-                "New Price", "Price Change", "P/L Impact", "Duration Approx P/L",
-                "ISIN_Specific_Price", "ISIN_Specific_Price Change", "ISIN_Specific_P/L Impact",
-                "ISIN_Specific_Duration Approx P/L", "DV01"
-            ]
-            float_cols = ["Years to Maturity", "Modified Duration"]
-
-            grouped_df = dataframe.sort_values(["ISIN", "Maturity Date"]).copy()
-            combined_rows = []
-            for isin, isin_df in grouped_df.groupby("ISIN", dropna=False):
-                display_df = isin_df[selected_columns].copy()
-
-                for col in date_cols:
-                    if col in display_df.columns:
-                        display_df[col] = pd.to_datetime(display_df[col], errors="coerce").dt.strftime("%Y-%m-%d")
-
-                for col in pct_cols:
-                    if col in display_df.columns:
-                        display_df[col] = display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notnull(x) else "")
-
-                for col in currency_cols:
-                    if col in display_df.columns:
-                        display_df[col] = display_df[col].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "")
-
-                for col in float_cols:
-                    if col in display_df.columns:
-                        if col == "Years to Maturity":
-                            display_df[col] = display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-                        else:
-                            display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notnull(x) else "")
-
-                header_row = {col: "" for col in selected_columns}
-                header_row["ISIN"] = f"ISIN: {isin}"
-
-                combined_rows.append(pd.DataFrame([header_row], columns=selected_columns))
-                combined_rows.append(display_df)
-
-            if combined_rows:
-                final_table = pd.concat(combined_rows, ignore_index=True)
-
-                def highlight_isin_header(row):
-                    isin_value = str(row.get("ISIN", ""))
-                    if isin_value.startswith("ISIN:"):
-                        return ["background-color: #DDE5FF; color: #111111; font-weight: 700;"] * len(row)
-                    return [""] * len(row)
-
-                styled_table = final_table.style.apply(highlight_isin_header, axis=1)
-                st.dataframe(styled_table, use_container_width=True)
-
-        if page == "Total Yield Shock":
-            # ==================== YIELD SHOCK ====================
-            render_section_title("Total (Parallel) Yield Shock Analysis")
-            st.sidebar.header("Yield Shock Settings")
-            shock_pct = st.sidebar.number_input("Parallel Yield Shock (%)", value=0.0, step=0.1)
-            shock = shock_pct / 100
-
-            df["New_YTM"] = df["YTM"] + shock
-            df["New Price"] = df.apply(lambda row: bond_price(row["Maturity Value"], row["Coupon"], row["New_YTM"], row["Years to Maturity"]), axis=1)
-            df["Price Change"] = df["New Price"] - df["Price"]
-            df["P/L Impact"] = df["Price Change"]
-            df["Duration Approx P/L"] = -df["Modified Duration"] * df["Market Value"] * shock
-            total_pl = df["P/L Impact"].sum()
-            df["% Contribution to P/L"] = df["P/L Impact"] / total_pl * 100 if total_pl != 0 else 0
-
-            render_isin_summary(df, "New Price")
-
-
-            # Portfolio Metrics
-            total_mv = df["Market Value"].sum()
-            weighted_duration = (df["Modified Duration"] * df["Market Value"]).sum() / total_mv
-            total_dv01 = df["DV01"].sum()
-            render_kpi_cards([
-                ("Total Market Value", f"{total_mv:,.2f}"),
-                ("Total P/L Impact", f"{total_pl:,.2f}"),
-                ("Weighted Duration", f"{weighted_duration:.2f}"),
-                ("Portfolio DV01", f"{total_dv01:,.2f}"),
-            ])
-
-            # Top 5 Most Sensitive ISINs
-            top_sensitive = df[["ISIN", "Market Value", "Modified Duration", "DV01", "Price Change", "P/L Impact"]].copy()
-            top_sensitive = top_sensitive.reindex(top_sensitive["P/L Impact"].abs().sort_values(ascending=False).index).head(5)
-            top_sensitive_display = top_sensitive.copy()
-            for col in ["Market Value", "Price Change", "P/L Impact", "DV01"]:
-                if col in top_sensitive_display.columns:
-                    top_sensitive_display[col] = top_sensitive_display[col].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "")
-            st.dataframe(top_sensitive_display, use_container_width=True)
-            render_sensitivity_visuals(top_sensitive, "P/L Impact", "Top 5 Most Sensitive ISINs (by P/L Impact)")
-
-            # Affected ISINS
-            render_section_title("ISINs Affected by Yield Shock")
-            affected = df[["ISIN","Market Value","Modified Duration","DV01","Price Change","P/L Impact","% Contribution to P/L","Duration Approx P/L"]].sort_values("P/L Impact", ascending=True)
-            def color_price(val):
-                color = 'green' if val >= 0 else 'red'
-                return f'color: {color}'
-            st.dataframe(affected.style.applymap(color_price, subset=["Price Change","P/L Impact"]), use_container_width=True)
-
-            render_grouped_portfolio_table(df, mode="total")
-
-            # Yield Curve Visualization
-            render_section_title("Yield Curve Visualization")
-            fig_yield = go.Figure()
-            fig_yield.add_trace(go.Scatter(
-                x=df["Years to Maturity"],
-                y=df["YTM"] * 100,
-                mode='lines+markers',
-                name='Original YTM',
-                line=dict(color='blue', width=2)
-            ))
-            fig_yield.add_trace(go.Scatter(
-                x=df["Years to Maturity"],
-                y=df["New_YTM"] * 100,
-                mode='lines+markers',
-                name=f'YTM after {shock_pct:.2f}% shock',
-                line=dict(color='red', width=2, dash='dash')
-            ))
-            fig_yield.update_layout(
-                title='Yield Curve',
-                xaxis_title='Years to Maturity',
-                yaxis_title='Yield (%)',
-                template='plotly_dark',
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-            st.plotly_chart(fig_yield, use_container_width=True)
-
-            # Download
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download Risk Report", csv, "bond_risk_report.csv", "text/csv")
-
-        elif page == "ISIN-wise Yield Shock":
-            # ==================== ISIN-SPECIFIC YIELD SHOCK ====================
-            render_section_title("ISIN-wise Yield Shock Analysis")
-            st.sidebar.header("ISIN-Specific Yield Shock Settings")
-            unique_isins = df["ISIN"].unique()
-            isin_shocks = {}
-            for isin in unique_isins:
-                isin_shocks[isin] = st.sidebar.number_input(f"Yield Shock for ISIN {isin} (%)", value=0.0, step=0.1)
-
-            def apply_isin_shock(row):
-                isin = row["ISIN"]
-                specific_shock = isin_shocks.get(isin, 0.0) / 100
-                return row["YTM"] + specific_shock
-
-            df["ISIN_Specific_Shock"] = df["ISIN"].map(lambda x: isin_shocks.get(x, 0.0) / 100)
-            df["ISIN_Specific_YTM"] = df.apply(apply_isin_shock, axis=1)
-            df["ISIN_Specific_Price"] = df.apply(lambda row: bond_price(row["Maturity Value"], row["Coupon"], row["ISIN_Specific_YTM"], row["Years to Maturity"]), axis=1)
-            df["ISIN_Specific_Price Change"] = df["ISIN_Specific_Price"] - df["Price"]
-            df["ISIN_Specific_P/L Impact"] = df["ISIN_Specific_Price Change"]
-            df["ISIN_Specific_Maturity Date"] = df["Maturity Date"]
-            df["ISIN_Specific_Market Value"] = df["ISIN_Specific_Price"]
-            df["ISIN_Specific_Modified Duration"] = df["Modified Duration"]
-            df["ISIN_Specific_DV01"] = df["DV01"]
-            total_pl = df["ISIN_Specific_P/L Impact"].sum()
-            df["ISIN_Specific_% Contribution to P/L"] = df["ISIN_Specific_P/L Impact"] / total_pl * 100 if total_pl != 0 else 0
-            df["ISIN_Specific_Duration Approx P/L"] = -df["ISIN_Specific_Modified Duration"] * df["ISIN_Specific_Market Value"] * df["ISIN_Specific_Shock"]
-
-            render_isin_summary(df, "ISIN_Specific_Market Value")
-
-            # ...existing code...
-
-            # ISIN-wise Price Change Table
-            render_section_title("ISIN-wise Shock Price Changes")
-            price_change_table = df[["ISIN", "Price", "ISIN_Specific_Price", "ISIN_Specific_Price Change"]].copy()
-            # Sort by absolute price change descending
-            price_change_table = price_change_table.reindex(
-                price_change_table["ISIN_Specific_Price Change"].abs().sort_values(ascending=False).index
-            )
-            for col in ["Price", "ISIN_Specific_Price", "ISIN_Specific_Price Change"]:
-                price_change_table[col] = price_change_table[col].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "")
-            st.dataframe(price_change_table, use_container_width=True)
-
-            # Portfolio Metrics
-            total_mv = df["ISIN_Specific_Market Value"].sum()
-            weighted_duration = (df["ISIN_Specific_Modified Duration"] * df["ISIN_Specific_Market Value"]).sum() / total_mv
-            total_dv01 = df["ISIN_Specific_DV01"].sum()
-            render_kpi_cards([
-                ("Total Market Value", f"{total_mv:,.2f}"),
-                ("Total P/L Impact", f"{total_pl:,.2f}"),
-                ("Weighted Duration", f"{weighted_duration:.2f}"),
-                ("Portfolio DV01", f"{total_dv01:,.2f}"),
-            ])
-
-            # Top 5 Most Sensitive ISINs (ISIN-wise Shock)
-            top_isin_specific = df[["ISIN", "ISIN_Specific_P/L Impact", "ISIN_Specific_Price Change", "ISIN_Specific_Market Value", "ISIN_Specific_Modified Duration", "ISIN_Specific_DV01"]].copy()
-            top_isin_specific = top_isin_specific.reindex(top_isin_specific["ISIN_Specific_P/L Impact"].abs().sort_values(ascending=False).index).head(5)
-            top_isin_display = top_isin_specific.copy()
-            for col in ["ISIN_Specific_P/L Impact", "ISIN_Specific_Price Change", "ISIN_Specific_Market Value", "ISIN_Specific_DV01"]:
-                if col in top_isin_display.columns:
-                    top_isin_display[col] = top_isin_display[col].apply(lambda x: f"{x:,.2f}" if pd.notnull(x) else "")
-            st.dataframe(top_isin_display, use_container_width=True)
-            render_sensitivity_visuals(
-                top_isin_specific.rename(columns={"ISIN_Specific_P/L Impact": "P/L Impact"}),
-                "P/L Impact",
-                "Top 5 Most Sensitive ISINs (ISIN-wise Yield Shock)"
-            )
-
-            render_grouped_portfolio_table(df, mode="isin")
-
-            # ISIN-specific yield curve visualization
-            render_section_title("ISIN-Specific Yield Curve Visualization")
-            fig_isin_yield = go.Figure()
-            fig_isin_yield.add_trace(go.Scatter(
-                x=df["Years to Maturity"],
-                y=df["YTM"] * 100,
-                mode='lines+markers',
-                name='Original YTM',
-                line=dict(color='blue', width=2)
-            ))
-            fig_isin_yield.add_trace(go.Scatter(
-                x=df["Years to Maturity"],
-                y=df["ISIN_Specific_YTM"] * 100,
-                mode='lines+markers',
-                name='ISIN-Specific YTM',
-                line=dict(color='green', width=2, dash='dot')
-            ))
-            fig_isin_yield.update_layout(
-                title='ISIN-Specific Yield Curve',
-                xaxis_title='Years to Maturity',
-                yaxis_title='Yield (%)',
-                template='plotly_dark',
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-            st.plotly_chart(fig_isin_yield, use_container_width=True)
-
-            # Download
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download ISIN-wise Risk Report", csv, "isin_wise_risk_report.csv", "text/csv")
-
-else:
-    st.info("Upload a portfolio file to begin analysis.")
+        st.dataframe(
+            shock_position_df[portfolio_cols].style.format(portfolio_formats),
+            use_container_width=True,
+        )
+
+        download_bytes, download_name, download_mime = to_excel_bytes(
+            summary_df=summary_df,
+            detail_df=valued_df,
+            shock_position_df=shock_position_df[portfolio_cols],
+            shock_isin_df=shock_isin_df,
+        )
+        st.download_button(
+            label="Download Yield Shock Results",
+            data=download_bytes,
+            file_name=download_name,
+            mime=download_mime,
+        )
+
+    with page_isin:
+        st.subheader("ISIN-wise impact")
+        isin_impact_display = shock_isin_df.rename(
+            columns={
+                "Clean_Base": "Clean Value (Base)",
+                "Clean_Shocked": "Clean Value (Shocked)",
+                "Clean_Delta": "Clean Value Delta",
+            }
+        )
+        isin_impact_formats = {
+            "Face_Value": "{:,.2f}",
+            "Book_Value": "{:,.2f}",
+            "Clean_Value": "{:,.2f}",
+            "Full_Value": "{:,.2f}",
+            "Gain_Loss": "{:,.2f}",
+            "Input_Market_Value": "{:,.2f}",
+            "Price100_Base": "{:,.4f}",
+            "Price100_Shocked": "{:,.4f}",
+            "Price100_Delta": "{:,.4f}",
+            "CleanPrice_Base": "{:,.4f}",
+            "CleanPrice_Shocked": "{:,.4f}",
+            "CleanPrice_Delta": "{:,.4f}",
+            "Clean Value (Base)": "{:,.2f}",
+            "Clean Value (Shocked)": "{:,.2f}",
+            "Clean Value Delta": "{:,.2f}",
+            "Full_Base": "{:,.2f}",
+            "Full_Shocked": "{:,.2f}",
+            "Full_Delta": "{:,.2f}",
+        }
+        st.dataframe(
+            isin_impact_display.style.format(isin_impact_formats),
+            use_container_width=True,
+        )
+
+        isin_options = sorted(shock_position_df["ISIN"].unique().tolist())
+        selected_isin = st.selectbox("Select ISIN", isin_options)
+        selected_isin_df = shock_position_df[shock_position_df["ISIN"] == selected_isin].copy()
+
+        render_section_title("Selected ISIN Visuals")
+        render_isin_visuals(selected_isin_df, selected_isin)
+
+        st.subheader(f"Selected ISIN details: {selected_isin}")
+        isin_detail_cols = [
+            "Deal No.",
+            "Initial Inv Date",
+            "Maturity Date",
+            "Maturity Value",
+            "Coupon",
+            "Yield (Base)",
+            "Yield (Shocked)",
+            "Price 100 (Base)",
+            "Price 100 (Shocked)",
+            "Price 100 Delta",
+            "Clean Price (Base)",
+            "Clean Price (Shocked)",
+            "Clean Price Delta",
+            "Full Value (Base)",
+            "Full Value (Shocked)",
+            "Full Value Delta",
+            "Clean Value (Base)",
+            "Clean Value (Shocked)",
+            "Clean Value Delta",
+            "Book Value",
+            "Gain/Loss vs Book (Base)",
+            "Gain/Loss vs Book (Shocked)",
+            "Gain/Loss Delta",
+        ]
+        isin_detail_formats = {
+            "Maturity Value": "{:,.2f}",
+            "Price 100 (Base)": "{:,.4f}",
+            "Price 100 (Shocked)": "{:,.4f}",
+            "Price 100 Delta": "{:,.4f}",
+            "Clean Price (Base)": "{:,.4f}",
+            "Clean Price (Shocked)": "{:,.4f}",
+            "Clean Price Delta": "{:,.4f}",
+            "Full Value (Base)": "{:,.2f}",
+            "Full Value (Shocked)": "{:,.2f}",
+            "Full Value Delta": "{:,.2f}",
+            "Clean Value (Base)": "{:,.2f}",
+            "Clean Value (Shocked)": "{:,.2f}",
+            "Clean Value Delta": "{:,.2f}",
+            "Book Value": "{:,.2f}",
+            "Gain/Loss vs Book (Base)": "{:,.2f}",
+            "Gain/Loss vs Book (Shocked)": "{:,.2f}",
+            "Gain/Loss Delta": "{:,.2f}",
+        }
+        st.dataframe(
+            selected_isin_df[isin_detail_cols].style.format(isin_detail_formats),
+            use_container_width=True,
+        )
+
+        deal_options = selected_isin_df["Deal No."].astype(str).tolist()
+        selected_deal = st.selectbox("Select Deal No. for cash-flow table", deal_options)
+
+        selected_row = selected_isin_df[selected_isin_df["Deal No."].astype(str) == selected_deal].iloc[0]
+
+        basis_choice = st.selectbox(
+            "Cash-flow table basis",
+            ["Base Yield", "Shocked Yield"],
+            index=0,
+        )
+        selected_rate = (
+            float(selected_row["Yield (Base)"])
+            if basis_choice == "Base Yield"
+            else float(selected_row["Yield (Shocked)"])
+        )
+
+        calc_table, dirty_price, clean_price, accrued_interest, frac = build_valuation_table(
+            face_value=float(selected_row["Maturity Value"]),
+            coupon_rate=float(selected_row["Coupon"]),
+            annual_yield=selected_rate,
+            maturity_date=selected_row["Maturity Date"],
+            valuation_date=valuation_timestamp,
+        )
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Face Value", f"{selected_row['Maturity Value']:,.2f}")
+        k2.metric("Dirty Value", f"{dirty_price:,.2f}")
+        k3.metric("Accrued Interest", f"{accrued_interest:,.2f}")
+        k4.metric("Clean Value", f"{clean_price:,.2f}")
+
+        st.caption(
+            f"Fraction used for first period = days_to_next_coupon/182 = {frac:.6f}. Exponents follow: frac, 1+frac, 2+frac, ..."
+        )
+        st.dataframe(calc_table, use_container_width=True)
+
+
+if __name__ == "__main__":
+    main()
