@@ -1,0 +1,1 @@
+This folder was archived on 2026-03-04. The project is now using MongoDB only (see bond_portfolio_mongo). All development should continue in bond_portfolio_mongo. This folder is preserved for reference and backup only.
