@@ -8,9 +8,13 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import auth
 
 
 st.set_page_config(page_title="Bond Portfolio Pricer", layout="wide")
+
+# require admin role to view this dashboard
+auth.require_role(["admin"])
 
 st.markdown(
     """

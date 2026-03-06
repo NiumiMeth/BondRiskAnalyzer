@@ -5,9 +5,13 @@ from datetime import date
 import numpy as np
 import pandas as pd
 import streamlit as st
+import auth
 
 
 st.set_page_config(page_title="Portfolio Manager", layout="wide")
+
+# require user or admin role to view portfolio page
+auth.require_role(["user", "admin"])
 
 EXPECTED_COLUMNS = [
     "Port. Index",
