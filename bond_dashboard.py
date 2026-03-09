@@ -505,9 +505,9 @@ def run_portfolio_valuation(df, valuation_date):
         purchased_ytm = float(row["YTM"])
         selling_ytm = float(row["Yield"])
         c100, a100, f100 = excel_price_actual_actual(valuation_date, maturity_date, coupon_rate, selling_ytm)
-        c100 = round(c100, 4); a100 = round(a100, 4); f100 = round(c100 + a100, 4)
+        # keep full precision for pricing (avoid rounding intermediate values)
+        f100 = c100 + a100
         ip100, _, _ = excel_price_actual_actual(purchase_date, maturity_date, coupon_rate, purchased_ytm)
-        ip100 = round(ip100, 4)
         init_value = ip100 * (face / 100.0)
         total_days = max((maturity_date - purchase_date).days, 1)
         elapsed = min(max((pd.Timestamp(valuation_date) - purchase_date).days, 0), total_days)
@@ -530,9 +530,9 @@ def run_yield_shock_analysis(valued_df, valuation_date, shock_bps):
         y_shocked = max(-0.99, y_base + shock_rate)
         face = float(row["Maturity Value"])
         c_b, a_b, f_b = excel_price_actual_actual(valuation_date, row["Maturity Date"], float(row["Coupon"]), y_base)
-        c_b = round(c_b,4); a_b = round(a_b,4); f_b = round(c_b+a_b,4)
+        f_b = c_b + a_b
         c_s, a_s, f_s = excel_price_actual_actual(valuation_date, row["Maturity Date"], float(row["Coupon"]), y_shocked)
-        c_s = round(c_s,4); a_s = round(a_s,4); f_s = round(c_s+a_s,4)
+        f_s = c_s + a_s
         sy.append(y_shocked)
         bcp.append(c_b); bai.append(a_b); bp.append(f_b)
         bcv.append(c_b*face/100); bfv.append(f_b*face/100); bgl.append(c_b*face/100 - float(row["Book Value"]))

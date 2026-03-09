@@ -430,8 +430,10 @@ def show_deep_dive(selected_row: pd.Series, valuation_timestamp: pd.Timestamp) -
 
         # Cash-flow table
         st.markdown('<div class="section-label" style="margin-top:1rem;">Cash-Flow Table</div>', unsafe_allow_html=True)
+        # Show high precision for exponent, discount factor and PV so users can reconcile manual calculations
         fmt = {"Coupon CF": "{:,.2f}", "Principal CF": "{:,.2f}",
-               "Total CF": "{:,.2f}", "Discount Factor": "{:.6f}", "PV": "{:,.2f}"}
+            "Total CF": "{:,.2f}", "Exponent (n + frac)": "{:.12f}",
+            "Discount Factor": "{:.12f}", "PV": "{:.6f}"}
         st.dataframe(calc_table.style.format(fmt, na_rep="—"), use_container_width=True, height=300)
 
     # ── TAB 2: Coupon Schedule ────────────────────────────────────────────────
