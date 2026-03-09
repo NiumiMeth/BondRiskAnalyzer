@@ -4,113 +4,336 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 import auth
 
-
-st.set_page_config(page_title="Portfolio Manager", layout="wide")
+st.set_page_config(page_title="Portfolio Manager", layout="wide", page_icon="📈", initial_sidebar_state="expanded")
 
 # require user or admin role to view portfolio page
 auth.require_role(["user", "admin"])
 
+# ── DARK BANKING THEME ──────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+/* ── Base ── */
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
+
+.stApp {
+    background: #0B0F1A;
+    color: #E2E8F0;
+}
+
+/* ── Hide Streamlit chrome ── */
+#MainMenu, footer, header { visibility: hidden; }
+.block-container { padding: 2rem 2.5rem 4rem; max-width: 1600px; }
+
+/* ── Top Header Bar ── */
+.dash-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem 0 1rem;
+    border-bottom: 1px solid #1E2A3A;
+    margin-bottom: 2rem;
+}
+.dash-logo {
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94A3B8;
+}
+.dash-title {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #F1F5F9;
+    letter-spacing: -0.02em;
+}
+.dash-badge {
+    background: #0EA5E9;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* ── KPI Cards ── */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.8rem;
+}
+.kpi-card {
+    background: #111827;
+    border: 1px solid #1E2A3A;
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+}
+.kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #0EA5E9, #6366F1);
+}
+.kpi-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #64748B;
+    margin-bottom: 0.5rem;
+}
+.kpi-value {
+    font-family: 'DM Mono', monospace;
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: #F1F5F9;
+    letter-spacing: -0.02em;
+}
+
+.kpi-value { white-space: nowrap; }
+.kpi-delta-pos {
+    font-size: 0.78rem;
+    color: #10B981;
+    margin-top: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+.kpi-delta-neg {
+    font-size: 0.78rem;
+    color: #F43F5E;
+    margin-top: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+.kpi-delta-neu {
+    font-size: 0.78rem;
+    color: #64748B;
+    margin-top: 0.3rem;
+}
+
+/* ── Section Labels ── */
+.section-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #475569;
+    margin-bottom: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+/* ── Panel Containers ── */
+.panel {
+    background: #111827;
+    border: 1px solid #1E2A3A;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+/* ── Alert Banner ── */
+.alert-banner {
+    background: #1C1A10;
+    border: 1px solid #854D0E;
+    border-left: 3px solid #F59E0B;
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    font-size: 0.82rem;
+    color: #FCD34D;
+    margin-bottom: 1.2rem;
+}
+
+/* ── Tabs override ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent;
+    gap: 0;
+    border-bottom: 1px solid #1E2A3A;
+    padding-bottom: 0;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    color: #64748B;
+    font-size: 0.82rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 0.6rem 1.2rem;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+}
+.stTabs [aria-selected="true"] {
+    background: transparent !important;
+    color: #F1F5F9 !important;
+    border-bottom: 2px solid #0EA5E9 !important;
+}
+.stTabs [data-baseweb="tab-panel"] { padding-top: 1.5rem; }
+
+/* ── Inputs ── */
+.stDateInput > div > div, .stNumberInput > div > div, .stSelectbox > div > div {
+    background: #0F172A !important;
+    border-color: #1E2A3A !important;
+    color: #E2E8F0 !important;
+    border-radius: 6px !important;
+}
+.stTextInput input, .stNumberInput input {
+    background: #0F172A !important;
+    color: #E2E8F0 !important;
+    border-color: #1E2A3A !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: #0EA5E9;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.5rem 1.2rem;
+    letter-spacing: 0.04em;
+    transition: background 0.15s;
+}
+.stButton > button:hover { background: #0284C7; }
+
+/* ── Download button ── */
+.stDownloadButton > button {
+    background: transparent;
+    border: 1px solid #1E2A3A;
+    color: #94A3B8;
+    font-size: 0.78rem;
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+}
+.stDownloadButton > button:hover { border-color: #0EA5E9; color: #0EA5E9; }
+
+/* ── Dataframe ── */
+.stDataFrame { border-radius: 8px; overflow: hidden; }
+[data-testid="stDataFrameContainer"] {
+    background: #0F172A;
+    border: 1px solid #1E2A3A;
+    border-radius: 8px;
+}
+
+/* ── Expander ── */
+.streamlit-expanderHeader {
+    background: #111827 !important;
+    border: 1px solid #1E2A3A !important;
+    border-radius: 8px !important;
+    color: #94A3B8 !important;
+    font-size: 0.84rem !important;
+}
+.streamlit-expanderContent {
+    background: #111827 !important;
+    border: 1px solid #1E2A3A !important;
+    border-top: none !important;
+}
+
+/* ── Metric ── */
+[data-testid="metric-container"] { background: transparent !important; }
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: #080C14 !important;
+    border-right: 1px solid #1E2A3A !important;
+    min-width: 260px !important;
+    width: 260px !important;
+}
+/* Always show sidebar expanded */
+section[data-testid="stSidebar"] {
+    transform: none !important;
+    visibility: visible !important;
+}
+/* Style the collapse toggle so it blends with theme */
+[data-testid="collapsedControl"] {
+    background: #0B0F1A !important;
+    border-right: 1px solid #1E2A3A !important;
+    color: #475569 !important;
+}
+[data-testid="collapsedControl"]:hover {
+    background: #111827 !important;
+    color: #94A3B8 !important;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0B0F1A; }
+::-webkit-scrollbar-thumb { background: #1E2A3A; border-radius: 4px; }
+</style>
+""", unsafe_allow_html=True)
+
 EXPECTED_COLUMNS = [
-    "Port. Index",
-    "Instrument",
-    "Deal No.",
-    "ISIN",
-    "Initial Inv Date",
-    "Maturity Date",
-    "Coupon",
-    "Maturity Value",
-    "YTM",
-    "Yield",
-    "Market value",
-    "Duration",
+    "Port. Index", "Instrument", "Deal No.", "ISIN",
+    "Initial Inv Date", "Maturity Date", "Coupon",
+    "Maturity Value", "YTM", "Yield", "Market value", "Duration",
 ]
 
-
-def parse_number(value: object) -> float:
-    if pd.isna(value):
-        return np.nan
+# ── HELPER FUNCTIONS (unchanged) ────────────────────────────────────────────
+def parse_number(value):
+    if pd.isna(value): return np.nan
     text = str(value).strip().replace(",", "")
-    if text == "":
-        return np.nan
-    try:
-        return float(text)
-    except ValueError:
-        return np.nan
+    if text == "": return np.nan
+    try: return float(text)
+    except ValueError: return np.nan
 
-
-def parse_rate(value: object) -> float:
-    if pd.isna(value):
-        return np.nan
+def parse_rate(value):
+    if pd.isna(value): return np.nan
     text = str(value).strip()
-    if text == "":
-        return np.nan
+    if text == "": return np.nan
     has_percent = "%" in text
     text = text.replace("%", "").replace(",", "")
-    try:
-        number = float(text)
-    except ValueError:
-        return np.nan
-    if has_percent or number > 1:
-        return number / 100.0
+    try: number = float(text)
+    except ValueError: return np.nan
+    if has_percent or number > 1: return number / 100.0
     return number
 
-
-def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+def clean_columns(df):
     df = df.copy()
     df.columns = [str(col).strip() for col in df.columns]
-    rename_map = {"Maturity Value ": "Maturity Value"}
-    df = df.rename(columns=rename_map)
+    df = df.rename(columns={"Maturity Value ": "Maturity Value"})
     return df
 
-
-def load_portfolio(uploaded_file) -> pd.DataFrame:
+def load_portfolio(uploaded_file):
     file_name = uploaded_file.name.lower()
-    if file_name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
-
+    df = pd.read_csv(uploaded_file) if file_name.endswith(".csv") else pd.read_excel(uploaded_file)
     df = clean_columns(df)
-
-    missing_columns = [col for col in EXPECTED_COLUMNS if col not in df.columns]
-    if missing_columns:
-        raise ValueError("Input file is missing required columns: " + ", ".join(missing_columns))
-
+    missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError("Missing columns: " + ", ".join(missing))
     df = df[EXPECTED_COLUMNS].copy()
     df = df.dropna(how="all")
-
     df["ISIN"] = df["ISIN"].astype(str).str.strip()
     df = df[df["ISIN"].notna() & (df["ISIN"] != "") & (df["ISIN"] != "nan")].copy()
-
     df["Initial Inv Date"] = pd.to_datetime(df["Initial Inv Date"], dayfirst=True, errors="coerce")
     df["Maturity Date"] = pd.to_datetime(df["Maturity Date"], dayfirst=True, errors="coerce")
-
-    for column in ["Maturity Value", "Market value", "Duration"]:
-        df[column] = df[column].map(parse_number)
-
+    for col in ["Maturity Value", "Market value", "Duration"]:
+        df[col] = df[col].map(parse_number)
     df["Coupon"] = df["Coupon"].map(parse_rate)
     df["YTM"] = df["YTM"].map(parse_rate)
     df["Yield"] = df["Yield"].map(parse_rate)
-
     df = df.dropna(subset=["Initial Inv Date", "Maturity Date", "Maturity Value", "Coupon", "YTM", "Yield"])
     return df
 
-
-def get_coupon_window(
-    settlement_date: pd.Timestamp,
-    maturity_date: pd.Timestamp,
-    frequency: int = 2,
-) -> tuple[pd.Timestamp, pd.Timestamp]:
+def get_coupon_window(settlement_date, maturity_date, frequency=2):
     months = int(12 / frequency)
     settlement = pd.Timestamp(settlement_date).normalize()
     maturity = pd.Timestamp(maturity_date).normalize()
-
     if settlement >= maturity:
         raise ValueError("Settlement date must be earlier than maturity date.")
-
     next_coupon = maturity
     while True:
         prev_coupon = next_coupon - pd.DateOffset(months=months)
@@ -118,70 +341,36 @@ def get_coupon_window(
             return prev_coupon, next_coupon
         next_coupon = prev_coupon
 
-
-def excel_price_actual_actual(
-    settlement_date: pd.Timestamp,
-    maturity_date: pd.Timestamp,
-    coupon_rate: float,
-    annual_yield: float,
-    redemption: float = 100.0,
-    frequency: int = 2,
-) -> tuple[float, float, float]:
+def excel_price_actual_actual(settlement_date, maturity_date, coupon_rate, annual_yield, redemption=100.0, frequency=2):
     settlement = pd.Timestamp(settlement_date).normalize()
     maturity = pd.Timestamp(maturity_date).normalize()
-
-    if settlement >= maturity:
-        return 0.0, 0.0, 0.0
-
+    if settlement >= maturity: return 0.0, 0.0, 0.0
     prev_coupon, next_coupon = get_coupon_window(settlement, maturity, frequency)
-
     e = (next_coupon - prev_coupon).days
     a = (settlement - prev_coupon).days
     dsc = (next_coupon - settlement).days
-
-    if e <= 0:
-        return 0.0, 0.0, 0.0
-
+    if e <= 0: return 0.0, 0.0, 0.0
     coupon_per_100 = 100.0 * coupon_rate / frequency
-    discount_base = 1.0 + annual_yield / frequency
-    discount_base = max(discount_base, 1e-8)
-
+    discount_base = max(1.0 + annual_yield / frequency, 1e-8)
     n = 0
     current = maturity
     while current > settlement:
         n += 1
         current = current - pd.DateOffset(months=int(12 / frequency))
-
-    if n <= 0:
-        return 0.0, 0.0, 0.0
-
+    if n <= 0: return 0.0, 0.0, 0.0
     exponent = (n - 1) + (dsc / e)
-    pv_red_plus_coupon = (redemption + coupon_per_100) / (discount_base**exponent)
-
-    pv_intermediate = 0.0
-    for k in range(1, n):
-        k_exp = (k - 1) + (dsc / e)
-        pv_intermediate += coupon_per_100 / (discount_base**k_exp)
-
+    pv_red_plus_coupon = (redemption + coupon_per_100) / (discount_base ** exponent)
+    pv_intermediate = sum(coupon_per_100 / (discount_base ** ((k - 1) + (dsc / e))) for k in range(1, n))
     accrued_100 = coupon_per_100 * (a / e)
     clean_price_100 = pv_red_plus_coupon + pv_intermediate - accrued_100
     full_price_100 = clean_price_100 + accrued_100
-
     return clean_price_100, accrued_100, full_price_100
 
-
-def run_portfolio_valuation(df: pd.DataFrame, valuation_date: pd.Timestamp) -> pd.DataFrame:
+def run_portfolio_valuation(df, valuation_date):
     output = df.copy()
-
-    clean_price_100 = []
-    accrued_100 = []
-    price_100 = []
-    clean_value = []
-    full_value = []
-    initial_inv_value = []
-    book_value = []
-    gain_loss = []
-
+    clean_price_100, accrued_100, price_100 = [], [], []
+    clean_value, full_value, initial_inv_value = [], [], []
+    book_value, gain_loss = [], []
     for _, row in output.iterrows():
         face = float(row["Maturity Value"])
         purchase_date = pd.Timestamp(row["Initial Inv Date"])
@@ -189,41 +378,19 @@ def run_portfolio_valuation(df: pd.DataFrame, valuation_date: pd.Timestamp) -> p
         coupon_rate = float(row["Coupon"])
         purchased_ytm = float(row["YTM"])
         selling_ytm = float(row["Yield"])
-
-        clean_100_now, accrued_now_100, full_100_now = excel_price_actual_actual(
-            settlement_date=valuation_date,
-            maturity_date=maturity_date,
-            coupon_rate=coupon_rate,
-            annual_yield=selling_ytm,
-            redemption=100.0,
-            frequency=2,
-        )
-
+        clean_100_now, accrued_now_100, _ = excel_price_actual_actual(valuation_date, maturity_date, coupon_rate, selling_ytm, 100.0, 2)
         clean_100_now = round(clean_100_now, 4)
         accrued_now_100 = round(accrued_now_100, 4)
         full_100_now = round(clean_100_now + accrued_now_100, 4)
-
-        init_price_100, _, _ = excel_price_actual_actual(
-            settlement_date=purchase_date,
-            maturity_date=maturity_date,
-            coupon_rate=coupon_rate,
-            annual_yield=purchased_ytm,
-            redemption=100.0,
-            frequency=2,
-        )
+        init_price_100, _, _ = excel_price_actual_actual(purchase_date, maturity_date, coupon_rate, purchased_ytm, 100.0, 2)
         init_price_100 = round(init_price_100, 4)
         init_value = init_price_100 * (face / 100.0)
-
         total_days = max((maturity_date - purchase_date).days, 1)
-        elapsed_days = (pd.Timestamp(valuation_date) - purchase_date).days
-        elapsed_days = min(max(elapsed_days, 0), total_days)
-
+        elapsed_days = min(max((pd.Timestamp(valuation_date) - purchase_date).days, 0), total_days)
         book_val = (((face - init_value) / total_days) * elapsed_days) + init_value
-
         clean_val = clean_100_now * (face / 100.0)
         full_val = full_100_now * (face / 100.0)
         gl_value = clean_val - book_val
-
         clean_price_100.append(clean_100_now)
         accrued_100.append(accrued_now_100)
         price_100.append(full_100_now)
@@ -232,7 +399,6 @@ def run_portfolio_valuation(df: pd.DataFrame, valuation_date: pd.Timestamp) -> p
         initial_inv_value.append(init_value)
         book_value.append(book_val)
         gain_loss.append(gl_value)
-
     output["Clean Price"] = clean_price_100
     output["Accrued Int"] = accrued_100
     output["Price 100%"] = price_100
@@ -241,99 +407,293 @@ def run_portfolio_valuation(df: pd.DataFrame, valuation_date: pd.Timestamp) -> p
     output["Initial Inv Value"] = initial_inv_value
     output["Book Value"] = book_value
     output["Gain/Loss"] = gain_loss
-
     return output
 
+# ── CHART HELPERS ────────────────────────────────────────────────────────────
+CHART_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="DM Sans", color="#94A3B8", size=11),
+    margin=dict(l=0, r=0, t=28, b=0),
+    xaxis=dict(showgrid=False, zeroline=False, color="#475569"),
+    yaxis=dict(showgrid=True, gridcolor="#1E2A3A", zeroline=False, color="#475569"),
+    legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#94A3B8", size=10)),
+)
 
-def aggregate_by_isin(valued_df: pd.DataFrame) -> pd.DataFrame:
-    grouped = (
-        valued_df.groupby("ISIN", as_index=False)
-        .agg(
-            Positions=("Deal No.", "count"),
-            Face_Value=("Maturity Value", "sum"),
-            Clean_Value=("Clean Value", "sum"),
-            Full_Value=("Full Value", "sum"),
-            Book_Value=("Book Value", "sum"),
-            Gain_Loss=("Gain/Loss", "sum"),
-            Input_Market_Value=("Market value", "max"),
-        )
-        .sort_values("ISIN")
+def kpi_card(label, value, delta=None, delta_label="", positive_is_good=True):
+    if delta is None:
+        delta_html = f'<div class="kpi-delta-neu">—</div>'
+    else:
+        pos = delta >= 0
+        good = pos if positive_is_good else not pos
+        cls = "kpi-delta-pos" if good else "kpi-delta-neg"
+        arrow = "▲" if pos else "▼"
+        delta_html = f'<div class="{cls}">{arrow} {delta_label}</div>'
+    return f"""
+    <div class="kpi-card">
+        <div class="kpi-label">{label}</div>
+        <div class="kpi-value">{value}</div>
+        {delta_html}
+    </div>"""
+
+def fmt_num(n, decimals=2):
+    return f"{n:,.{decimals}f}"
+
+def maturity_ladder_chart(df):
+    df2 = df.copy()
+    df2["Maturity Year"] = pd.to_datetime(df2["Maturity Date"]).dt.year
+    ladder = df2.groupby("Maturity Year")["Maturity Value"].sum().reset_index()
+    fig = go.Figure(go.Bar(
+        x=ladder["Maturity Year"].astype(str),
+        y=ladder["Maturity Value"],
+        marker=dict(color="#0EA5E9", opacity=0.85),
+        hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>",
+    ))
+    fig.update_layout(**CHART_LAYOUT, title=dict(text="Maturity Ladder", font=dict(size=12, color="#64748B")), height=240)
+    return fig
+
+def allocation_donut(df):
+    data = df.groupby("ISIN")["Full Value"].sum().reset_index()
+    fig = go.Figure(go.Pie(
+        labels=data["ISIN"],
+        values=data["Full Value"],
+        hole=0.62,
+        textinfo="none",
+        hovertemplate="<b>%{label}</b><br>%{value:,.0f}<br>%{percent}<extra></extra>",
+        marker=dict(colors=["#0EA5E9","#6366F1","#10B981","#F59E0B","#F43F5E","#8B5CF6","#14B8A6","#FB923C"],
+                    line=dict(color="#0B0F1A", width=2)),
+    ))
+    fig.update_layout(
+        **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "legend", "margin")},
+        title=dict(text="Allocation by ISIN", font=dict(size=12, color="#64748B")),
+        height=240,
+        legend=dict(orientation="v", x=1.02, y=0.5, bgcolor="rgba(0,0,0,0)", font=dict(color="#94A3B8", size=9)),
+        margin=dict(l=0, r=80, t=28, b=0),
     )
-    grouped["Clean_minus_Book"] = grouped["Clean_Value"] - grouped["Book_Value"]
-    grouped["Full_minus_Book"] = grouped["Full_Value"] - grouped["Book_Value"]
-    return grouped
+    return fig
 
+def sensitivity_curve(df_clean, valuation_ts):
+    shocks = [s / 100 for s in range(-200, 210, 25)]
+    values = []
+    for shock in shocks:
+        tmp = df_clean.copy()
+        tmp["Yield"] = tmp["Yield"].fillna(0) + shock
+        val = run_portfolio_valuation(tmp, valuation_ts)
+        values.append(float(val["Full Value"].sum()))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[s * 100 for s in shocks], y=values,
+        mode="lines+markers",
+        line=dict(color="#0EA5E9", width=2),
+        marker=dict(size=5, color="#0EA5E9"),
+        fill="tozeroy", fillcolor="rgba(14,165,233,0.07)",
+        hovertemplate="<b>%{x:+.0f} bps</b><br>%{y:,.0f}<extra></extra>",
+    ))
+    fig.update_layout(
+        **{k: v for k, v in CHART_LAYOUT.items() if k != "xaxis"},
+        title=dict(text="Portfolio Full Value vs Yield Shock", font=dict(size=12, color="#64748B")),
+        xaxis=dict(title="Shock (bps)", showgrid=False, zeroline=True, zerolinecolor="#1E2A3A", color="#475569"),
+        height=280)
+    return fig
 
-def main() -> None:
-    st.title("Portfolio Manager")
-    st.write("Add holdings manually or upload a portfolio file (same format as the dashboard).")
+def yield_bar(df):
+    fig = go.Figure()
+    fig.add_trace(go.Bar(name="YTM", x=df["ISIN"], y=df["YTM"] * 100,
+        marker_color="#6366F1", hovertemplate="%{x}<br>YTM: %{y:.2f}%<extra></extra>"))
+    fig.add_trace(go.Bar(name="Yield", x=df["ISIN"], y=df["Yield"] * 100,
+        marker_color="#0EA5E9", hovertemplate="%{x}<br>Yield: %{y:.2f}%<extra></extra>"))
+    fig.update_layout(**CHART_LAYOUT,
+        title=dict(text="YTM vs Current Yield", font=dict(size=12, color="#64748B")),
+        barmode="group", height=240)
+    return fig
+
+# ── MAIN ─────────────────────────────────────────────────────────────────────
+def main():
+    # ── Header ──
+    st.markdown("""
+    <div class="dash-header">
+        <div class="dash-logo">Fixed Income</div>
+        <div class="dash-title">Bond Portfolio Manager</div>
+        <div class="dash-badge">Live</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     if "portfolio_df" not in st.session_state:
         st.session_state["portfolio_df"] = pd.DataFrame(columns=EXPECTED_COLUMNS)
 
-    uploaded_file = st.file_uploader("Upload portfolio CSV/Excel to add", type=["csv", "xlsx", "xls"])
-    if uploaded_file:
-        try:
-            new_df = load_portfolio(uploaded_file)
-            st.session_state["portfolio_df"] = pd.concat([st.session_state["portfolio_df"], new_df], ignore_index=True)
-            st.success(f"Added {len(new_df)} rows to portfolio.")
-        except Exception as e:
-            st.error(f"Failed to load file: {e}")
+    # ── Sidebar ──────────────────────────────────────────────────────────────
+    with st.sidebar:
+        # Extra sidebar styles
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] { padding-top: 0 !important; }
+        [data-testid="stSidebar"] > div:first-child { padding: 1.2rem 1rem 2rem; }
 
-    with st.expander("Add single holding manually"):
-        with st.form("add_entry"):
-            p_index = st.text_input("Port. Index", value="")
-            instrument = st.text_input("Instrument", value="")
-            deal_no = st.text_input("Deal No.", value="")
-            isin = st.text_input("ISIN", value="")
-            init_date = st.date_input("Initial Inv Date", value=date.today())
-            mat_date = st.date_input("Maturity Date", value=date.today())
-            coupon = st.text_input("Coupon (e.g. 5% or 0.05)", value="0.00")
-            mat_value = st.number_input("Maturity Value", value=0.0, format="%.2f")
-            ytm = st.text_input("YTM (e.g. 4% or 0.04)", value="0.00")
-            yld = st.text_input("Yield (market) (e.g. 4% or 0.04)", value="0.00")
-            market_val = st.number_input("Market value", value=0.0, format="%.2f")
-            duration = st.number_input("Duration", value=0.0, format="%.2f")
-            add_clicked = st.form_submit_button("Add to portfolio")
+        /* Nav links */
+        .nav-section { margin-bottom: 1.4rem; }
+        .nav-label {
+            font-size: 0.62rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #334155;
+            margin-bottom: 0.4rem;
+            padding-left: 4px;
+        }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0.5rem 0.75rem;
+            border-radius: 7px;
+            font-size: 0.83rem;
+            font-weight: 500;
+            color: #94A3B8;
+            cursor: pointer;
+            transition: background 0.12s, color 0.12s;
+            text-decoration: none;
+            margin-bottom: 2px;
+        }
+        .nav-link:hover { background: #1E2A3A; color: #E2E8F0; }
+        .nav-link.active { background: rgba(14,165,233,0.12); color: #0EA5E9; }
+        .nav-link .icon { font-size: 0.9rem; width: 18px; text-align: center; }
 
-            if add_clicked:
-                row = {
-                    "Port. Index": p_index,
-                    "Instrument": instrument,
-                    "Deal No.": deal_no,
-                    "ISIN": isin,
-                    "Initial Inv Date": pd.Timestamp(init_date),
-                    "Maturity Date": pd.Timestamp(mat_date),
-                    "Coupon": coupon,
-                    "Maturity Value": mat_value,
-                    "YTM": ytm,
-                    "Yield": yld,
-                    "Market value": market_val,
-                    "Duration": duration,
-                }
+        /* Divider */
+        .sb-divider {
+            border: none;
+            border-top: 1px solid #1E2A3A;
+            margin: 1rem 0;
+        }
+
+        /* Portfolio status pill */
+        .port-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #0F172A;
+            border: 1px solid #1E2A3A;
+            border-radius: 8px;
+            padding: 0.6rem 0.9rem;
+            margin-bottom: 1rem;
+        }
+        .port-status-label { font-size: 0.72rem; color: #475569; }
+        .port-status-value { font-size: 0.82rem; font-weight: 600; color: #E2E8F0; font-family: 'DM Mono', monospace; }
+
+        /* Logout button */
+        [data-testid="stSidebar"] .stButton > button {
+            background: transparent !important;
+            border: 1px solid #1E2A3A !important;
+            color: #64748B !important;
+            font-size: 0.78rem !important;
+            width: 100% !important;
+            border-radius: 7px !important;
+            padding: 0.4rem !important;
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            border-color: #F43F5E !important;
+            color: #F43F5E !important;
+            background: rgba(244,63,94,0.06) !important;
+        }
+
+        /* File uploader */
+        [data-testid="stSidebar"] [data-testid="stFileUploader"] {
+            background: #0F172A;
+            border: 1px dashed #1E2A3A;
+            border-radius: 8px;
+            padding: 0.5rem;
+        }
+
+        /* Success/error in sidebar */
+        [data-testid="stSidebar"] .stAlert { font-size: 0.78rem !important; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # ── User profile card ──
+        auth.render_sidebar_user_panel()
+
+        # ── Navigation ──
+        st.markdown("""
+        <div class="nav-section">
+            <div class="nav-label">Navigation</div>
+            <div class="nav-link active"><span class="icon">📊</span> Portfolio Dashboard</div>
+            <div class="nav-link"><span class="icon">📋</span> Holdings</div>
+            <div class="nav-link"><span class="icon">📈</span> Scenario Analysis</div>
+            <div class="nav-link"><span class="icon">🔍</span> Bond Deep-Dive</div>
+        </div>
+        <hr class="sb-divider"/>
+        """, unsafe_allow_html=True)
+
+        # ── Valuation date ──
+        st.markdown('<div class="nav-label">Valuation Date</div>', unsafe_allow_html=True)
+        valuation_date = st.date_input("", value=date.today(), label_visibility="collapsed")
+
+        # ── Portfolio status summary ──
+        if not st.session_state["portfolio_df"].empty:
+            n = len(st.session_state["portfolio_df"])
+            st.markdown(f"""
+            <div class="port-status">
+                <span class="port-status-label">Holdings loaded</span>
+                <span class="port-status-value">{n}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<hr class="sb-divider"/>', unsafe_allow_html=True)
+
+        # ── Data upload (collapsible) ──
+        with st.expander("📁  Upload Portfolio", expanded=st.session_state["portfolio_df"].empty):
+            uploaded_file = st.file_uploader("CSV / Excel", type=["csv", "xlsx", "xls"],
+                                              label_visibility="collapsed")
+            if uploaded_file:
                 try:
-                    tmp = pd.DataFrame([row])
-                    tmp = clean_columns(tmp)
-                    tmp["Coupon"] = tmp["Coupon"].map(parse_rate)
-                    tmp["YTM"] = tmp["YTM"].map(parse_rate)
-                    tmp["Yield"] = tmp["Yield"].map(parse_rate)
-                    tmp["Maturity Value"] = tmp["Maturity Value"].map(parse_number)
-                    st.session_state["portfolio_df"] = pd.concat([st.session_state["portfolio_df"], tmp], ignore_index=True)
-                    st.success("Holding added to portfolio.")
+                    new_df = load_portfolio(uploaded_file)
+                    st.session_state["portfolio_df"] = pd.concat(
+                        [st.session_state["portfolio_df"], new_df], ignore_index=True)
+                    st.success(f"✓ {len(new_df)} holdings loaded")
                 except Exception as e:
-                    st.error(f"Could not add holding: {e}")
+                    st.error(str(e))
 
-    st.markdown("---")
-    st.subheader("Current Portfolio")
-    if st.session_state["portfolio_df"].empty:
-        st.info("No holdings in portfolio. Add manually or upload a file.")
-        return
+            if not st.session_state["portfolio_df"].empty:
+                if st.button("🗑️ Clear Portfolio"):
+                    st.session_state["portfolio_df"] = pd.DataFrame(columns=EXPECTED_COLUMNS)
+                    st.rerun()
 
-    st.dataframe(st.session_state["portfolio_df"], use_container_width=True)
+        # ── Add manually (collapsible) ──
+        with st.expander("➕  Add Holding Manually"):
+            with st.form("add_entry"):
+                p_index = st.text_input("Port. Index")
+                isin    = st.text_input("ISIN")
+                mat_value = st.number_input("Maturity Value", value=0.0, format="%.2f")
+                if st.form_submit_button("Add Holding", use_container_width=True):
+                    row = {
+                        "Port. Index": p_index, "Instrument": "", "Deal No.": "", "ISIN": isin,
+                        "Initial Inv Date": pd.Timestamp(date.today()),
+                        "Maturity Date": pd.Timestamp(date.today()),
+                        "Coupon": "0.00", "Maturity Value": mat_value,
+                        "YTM": "0.00", "Yield": "0.00", "Market value": 0.0, "Duration": 0.0,
+                    }
+                    try:
+                        tmp = pd.DataFrame([row])
+                        tmp = clean_columns(tmp)
+                        st.session_state["portfolio_df"] = pd.concat(
+                            [st.session_state["portfolio_df"], tmp], ignore_index=True)
+                        st.success("Holding added.")
+                    except Exception as e:
+                        st.error(str(e))
 
-    valuation_date = st.date_input("Valuation Date for totals", value=date.today())
     valuation_timestamp = pd.Timestamp(valuation_date)
 
+    # ── Gate: no data ──
+    if st.session_state["portfolio_df"].empty:
+        st.markdown("""
+        <div style="text-align:center; padding: 5rem 2rem; color: #475569;">
+            <div style="font-size:2.5rem; margin-bottom:1rem;">📂</div>
+            <div style="font-size:1rem; font-weight:500; color:#64748B;">No portfolio loaded</div>
+            <div style="font-size:0.82rem; margin-top:0.4rem;">Upload a file or add holdings using the sidebar.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    # ── Compute ──
     try:
         cleaned = clean_columns(st.session_state["portfolio_df"]).copy()
         for col in ["Maturity Value", "Market value", "Duration"]:
@@ -342,258 +702,173 @@ def main() -> None:
         cleaned["YTM"] = cleaned["YTM"].map(parse_rate)
         cleaned["Yield"] = cleaned["Yield"].map(parse_rate)
 
+        valued = run_portfolio_valuation(cleaned, valuation_timestamp)
+
+        total_book = float(valued["Book Value"].sum())
+        total_full = float(valued["Full Value"].sum())
+        total_clean = float(valued["Clean Value"].sum())
+        total_gl = float(valued["Gain/Loss"].sum())
+        gl_pct = (total_gl / total_book * 100) if total_book else 0.0
+        n_holdings = len(valued)
+
+        # ── Maturity alert ──
+        today = pd.Timestamp(valuation_date)
+        maturing_soon = valued[
+            (pd.to_datetime(valued["Maturity Date"]) - today).dt.days.between(0, 90)
+        ]
+        if not maturing_soon.empty:
+            st.markdown(
+                f'<div class="alert-banner">⚠️ {len(maturing_soon)} bond(s) maturing within 90 days — '
+                f'Face value: {fmt_num(float(maturing_soon["Maturity Value"].sum()))}</div>',
+                unsafe_allow_html=True,
+            )
+
+        # ── KPI Cards ──
+        gl_sign = "+" if total_gl >= 0 else ""
+        kpi_html = f"""
+        <div class="kpi-grid">
+            {kpi_card("Total Book Value", fmt_num(total_book))}
+            {kpi_card("Full Market Value", fmt_num(total_full),
+                delta=total_full - total_book,
+                delta_label=fmt_num(total_full - total_book),
+                positive_is_good=True)}
+            {kpi_card("Clean Value", fmt_num(total_clean))}
+            {kpi_card("Unrealized Gain / Loss", f"{gl_sign}{fmt_num(total_gl)}",
+                delta=total_gl,
+                delta_label=f"{gl_sign}{gl_pct:.2f}% of book",
+                positive_is_good=True)}
+        </div>
+        """
+        st.markdown(kpi_html, unsafe_allow_html=True)
+
+        # ── Secondary metrics row ──
+        avg_coupon = float(cleaned["Coupon"].mean()) * 100
+        avg_yield = float(cleaned["Yield"].mean()) * 100
+        avg_ytm = float(cleaned["YTM"].mean()) * 100
+        avg_dur = float(cleaned["Duration"].mean()) if "Duration" in cleaned.columns else 0.0
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Holdings", f"{n_holdings}")
+        s2.metric("Avg. Coupon", f"{avg_coupon:.2f}%")
+        s3.metric("Avg. Yield", f"{avg_yield:.2f}%")
+        s4.metric("Avg. Duration", f"{avg_dur:.2f}")
+
         st.markdown("---")
-        st.subheader("Yield Scenario Controls")
-        control_left, control_right = st.columns([3, 1])
-        with control_left:
-            shock_pct = st.number_input(
-                "Parallel Yield Shift (%)",
-                min_value=-10.0,
-                max_value=10.0,
-                value=0.0,
-                step=0.05,
-                format="%.2f",
-                help="Enter the yield shift in percent (e.g., 0.50 = +50 bps).",
-            )
-            funding_rate_pct = st.number_input(
-                "Global Funding Rate (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=0.0,
-                step=0.01,
-                format="%.2f",
-                help="Global funding (repo) rate used to compute funding cost if per-deal rate not provided.",
-            )
-            st.caption("Apply a parallel shift to the `Yield` column for scenario valuation.")
-        with control_right:
-            st.metric("Selected Shift", f"{shock_pct:+.2f}%")
 
-        edit_yields = st.checkbox("Edit yields inline (apply before scenario)", value=False)
-        if edit_yields:
-            st.caption("Edit the `Yield` values in-place; these values will be used as the base for scenario shifts.")
-            editable = st.experimental_data_editor(
-                cleaned[["Port. Index", "Deal No.", "ISIN", "Yield"]], num_rows="dynamic"
-            )
-            # update yields from edited table
-            try:
-                cleaned = cleaned.copy()
-                cleaned = cleaned.drop(columns=["Yield"]) .merge(
-                    editable[["Port. Index", "Deal No.", "ISIN", "Yield"]], on=["Port. Index", "Deal No.", "ISIN"], how="left"
-                )
-            except Exception:
-                # fallback: if merge fails, attempt to assign by index
-                cleaned.loc[editable.index, "Yield"] = editable["Yield"].values
+        # ── Charts row ──
+        c1, c2, c3 = st.columns([1.1, 1, 1.2])
+        with c1:
+            st.plotly_chart(maturity_ladder_chart(valued), use_container_width=True, config={"displayModeBar": False})
+        with c2:
+            st.plotly_chart(yield_bar(cleaned), use_container_width=True, config={"displayModeBar": False})
+        with c3:
+            st.plotly_chart(allocation_donut(valued), use_container_width=True, config={"displayModeBar": False})
 
-        # prepare base and shocked dataframes
-        shock_rate = shock_pct / 100.0
-
-        cleaned_base = cleaned.copy()
-        cleaned_shocked = cleaned.copy()
-        cleaned_shocked["Yield"] = cleaned_shocked["Yield"].fillna(0.0) + shock_rate
-
-        valued_base = run_portfolio_valuation(cleaned_base, valuation_timestamp)
-        valued_shocked = run_portfolio_valuation(cleaned_shocked, valuation_timestamp)
-
-        # Compute funding cost and coupons received per deal
-        try:
-            purchase_vals = []
-            holding_days = []
-            funding_rates = []
-            funding_costs = []
-            coupons_received = []
-
-            for _, row in cleaned.iterrows():
-                face = float(row["Maturity Value"])
-                purchase_date = pd.Timestamp(row["Initial Inv Date"])
-                maturity_date = pd.Timestamp(row["Maturity Date"])
-                coupon_rate = float(row["Coupon"])
-                purchased_ytm = float(row["YTM"])
-
-                # purchase full price (use excel_price_actual_actual)
-                init_clean_100, init_accrued_100, init_full_100 = excel_price_actual_actual(
-                    settlement_date=purchase_date,
-                    maturity_date=maturity_date,
-                    coupon_rate=coupon_rate,
-                    annual_yield=purchased_ytm,
-                    redemption=100.0,
-                    frequency=2,
-                )
-                purchase_full_value = init_full_100 * (face / 100.0)
-
-                days = max((valuation_timestamp - purchase_date).days, 0)
-
-                # per-deal funding rate if provided, else global
-                per_rate = None
-                if "Funding Rate" in cleaned.columns:
-                    try:
-                        per_rate = parse_rate(row.get("Funding Rate", np.nan))
-                    except Exception:
-                        per_rate = None
-                rate = float(per_rate) if (per_rate is not None and not pd.isna(per_rate)) else (funding_rate_pct / 100.0)
-
-                f_cost = purchase_full_value * rate * (days / 365.0)
-
-                # coupons received since purchase up to valuation
-                try:
-                    schedule = coupon_date.get_coupon_schedule(maturity_date, purchase_date, frequency=2)
-                    passed_coupons = [d for d in schedule if (d <= valuation_timestamp) and (d >= purchase_date)]
-                    coupon_amt = face * coupon_rate / 2.0
-                    coupons_recv = coupon_amt * len(passed_coupons)
-                except Exception:
-                    coupons_recv = 0.0
-
-                purchase_vals.append(purchase_full_value)
-                holding_days.append(days)
-                funding_rates.append(rate)
-                funding_costs.append(f_cost)
-                coupons_received.append(coupons_recv)
-
-            valued_base = valued_base.copy()
-            valued_shocked = valued_shocked.copy()
-
-            valued_base["Purchase Full Value"] = purchase_vals
-            valued_base["Holding Days"] = holding_days
-            valued_base["Funding Rate"] = funding_rates
-            valued_base["Funding Cost"] = funding_costs
-            valued_base["Coupons Received"] = coupons_received
-
-            valued_shocked["Purchase Full Value"] = purchase_vals
-            valued_shocked["Holding Days"] = holding_days
-            valued_shocked["Funding Rate"] = funding_rates
-            valued_shocked["Funding Cost"] = funding_costs
-            valued_shocked["Coupons Received"] = coupons_received
-
-            # Net P/L per deal: (Sales Value - Purchase Value) + Coupons Received - Funding Cost
-            valued_base["Net P/L"] = (valued_base["Full Value"] - valued_base["Purchase Full Value"]) + valued_base["Coupons Received"] - valued_base["Funding Cost"]
-            valued_shocked["Net P/L"] = (valued_shocked["Full Value"] - valued_shocked["Purchase Full Value"]) + valued_shocked["Coupons Received"] - valued_shocked["Funding Cost"]
-        except Exception as e:
-            st.warning(f"Could not compute funding costs per deal: {e}")
-
-        total_book_base = float(valued_base["Book Value"].sum())
-        total_full_base = float(valued_base["Full Value"].sum())
-        total_clean_base = float(valued_base["Clean Value"].sum())
-        total_gl_base = float(valued_base["Gain/Loss"].sum())
-
-        total_book_shocked = float(valued_shocked["Book Value"].sum())
-        total_full_shocked = float(valued_shocked["Full Value"].sum())
-        total_clean_shocked = float(valued_shocked["Clean Value"].sum())
-        total_gl_shocked = float(valued_shocked["Gain/Loss"].sum())
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Book Value (Base)", f"{total_book_base:,.2f}")
-        m2.metric(
-            "Full Value (Shocked)",
-            f"{total_full_shocked:,.2f}",
-            delta=f"{(total_full_shocked - total_full_base):,.2f}",
-        )
-        m3.metric(
-            "Clean Value (Shocked)",
-            f"{total_clean_shocked:,.2f}",
-            delta=f"{(total_clean_shocked - total_clean_base):,.2f}",
-        )
-        m4.metric(
-            "Gain/Loss (Shocked)",
-            f"{total_gl_shocked:,.2f}",
-            delta=f"{(total_gl_shocked - total_gl_base):,.2f}",
-        )
-
-        st.subheader("Valuation Details")
-        tab_base, tab_shocked = st.tabs(["Base Valuation", "Shifted Valuation"])
-        with tab_base:
-            st.dataframe(valued_base, use_container_width=True)
-            csv_base = valued_base.to_csv(index=False).encode("utf-8")
-            st.download_button("Download base valuation CSV", data=csv_base, file_name="portfolio_valuation_base.csv", mime="text/csv")
-        with tab_shocked:
-            st.dataframe(valued_shocked, use_container_width=True)
-            csv_shock = valued_shocked.to_csv(index=False).encode("utf-8")
-            st.download_button("Download shocked valuation CSV", data=csv_shock, file_name="portfolio_valuation_shocked.csv", mime="text/csv")
-
-        # Individual Bond Deep-Dive
         st.markdown("---")
-        st.subheader("Individual Bond Deep-Dive")
-        try:
-            import coupon_date
 
+        # ── Tabs ──
+        tab_holdings, tab_scenario, tab_deepdive = st.tabs([
+            "  Current Holdings  ",
+            "  Scenario Analysis  ",
+            "  Bond Deep-Dive  ",
+        ])
+
+        fmt = {
+            "Maturity Value": "{:,.2f}", "Clean Value": "{:,.2f}",
+            "Full Value": "{:,.2f}", "Book Value": "{:,.2f}",
+            "Gain/Loss": "{:,.2f}", "Coupon": "{:.2%}",
+            "YTM": "{:.2%}", "Yield": "{:.2%}",
+        }
+
+        # TAB 1
+        with tab_holdings:
+            col_search, col_dl = st.columns([3, 1])
+            with col_search:
+                isin_filter = st.multiselect(
+                    "Filter by ISIN", options=sorted(valued["ISIN"].unique()), default=[])
+            disp = valued[valued["ISIN"].isin(isin_filter)] if isin_filter else valued
+
+            # Color Gain/Loss
+            def color_gl(v):
+                if isinstance(v, float):
+                    return "color: #10B981" if v >= 0 else "color: #F43F5E"
+                return ""
+
+            styled = disp.style.format(fmt, na_rep="—").applymap(color_gl, subset=["Gain/Loss"])
+            st.dataframe(styled, use_container_width=True, height=400)
+
+            with col_dl:
+                st.download_button(
+                    "📥 Export CSV",
+                    data=disp.to_csv(index=False).encode("utf-8"),
+                    file_name="portfolio.csv", mime="text/csv",
+                )
+
+        # TAB 2
+        with tab_scenario:
+            sc1, sc2 = st.columns([1, 3])
+            with sc1:
+                shock_pct = st.number_input(
+                    "Parallel Yield Shift (bps)", min_value=-1000, max_value=1000,
+                    value=0, step=5,
+                    help="e.g. 50 = +50 bps parallel shift",
+                )
+            shock_rate = shock_pct / 10000.0
+            cleaned_shocked = cleaned.copy()
+            cleaned_shocked["Yield"] = cleaned_shocked["Yield"].fillna(0) + shock_rate
+            valued_shocked = run_portfolio_valuation(cleaned_shocked, valuation_timestamp)
+            total_full_shocked = float(valued_shocked["Full Value"].sum())
+            total_gl_shocked = float(valued_shocked["Gain/Loss"].sum())
+
+            sm1, sm2, sm3 = st.columns(3)
+            sm1.metric("Shocked Full Value", fmt_num(total_full_shocked),
+                       delta=f"{total_full_shocked - total_full:,.2f}")
+            sm2.metric("Shocked Gain/Loss", fmt_num(total_gl_shocked),
+                       delta=f"{total_gl_shocked - total_gl:,.2f}")
+            sm3.metric("Value Change %",
+                       f"{((total_full_shocked - total_full) / total_full * 100):.3f}%" if total_full else "—")
+
+            st.plotly_chart(sensitivity_curve(cleaned, valuation_timestamp),
+                            use_container_width=True, config={"displayModeBar": False})
+
+            st.dataframe(valued_shocked.style.format(fmt, na_rep="—"), use_container_width=True, height=350)
+
+        # TAB 3
+        with tab_deepdive:
             isin_options = sorted(cleaned["ISIN"].unique().tolist())
-            sel_isin = st.selectbox("Select ISIN for deep-dive", isin_options)
-            deals = cleaned[cleaned["ISIN"] == sel_isin]["Deal No."].astype(str).tolist()
-            sel_deal = st.selectbox("Select Deal No.", deals)
+            sel_isin = st.selectbox("Select ISIN", isin_options)
+            if sel_isin:
+                isin_rows = valued[valued["ISIN"] == sel_isin].copy()
+                total_face = float(isin_rows["Maturity Value"].sum())
+                total_accrued = float(isin_rows["Accrued Int"].sum())
+                total_clean_isin = float(isin_rows["Clean Value"].sum())
+                total_gl_isin = float(isin_rows["Gain/Loss"].sum())
 
-            if st.button("Show Deep Dive"):
-                sel_row = cleaned[(cleaned["ISIN"] == sel_isin) & (cleaned["Deal No."].astype(str) == sel_deal)].iloc[0]
-                # store for standalone page if needed
-                st.session_state["selected_bond"] = sel_row
-                coupon_date.show_deep_dive(sel_row, valuation_timestamp)
-            st.markdown("---")
-            st.subheader("ISIN Deep-Dive (aggregate)")
-            if st.button("Show ISIN Deep Dive"):
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("Face Value", fmt_num(total_face))
+                d2.metric("Accrued Interest", fmt_num(total_accrued))
+                d3.metric("Clean Value", fmt_num(total_clean_isin))
+                gl_sign2 = "+" if total_gl_isin >= 0 else ""
+                d4.metric("Gain / Loss", f"{gl_sign2}{fmt_num(total_gl_isin)}")
+
+                st.markdown("#### Deals")
+                deals = isin_rows["Deal No."].astype(str).tolist()
+                sel_deal = st.selectbox("Select Deal No.", deals)
+
                 try:
-                    # filter valued_base rows for this ISIN
-                    isin_rows = valued_base[valued_base["ISIN"] == sel_isin].copy()
-                    if isin_rows.empty:
-                        st.info("No positions found for selected ISIN.")
-                    else:
-                        # aggregate simple metrics
-                        total_coupons_received = float(isin_rows["Coupons Received"].sum()) if "Coupons Received" in isin_rows.columns else 0.0
-                        total_accrued = float(isin_rows["Accrued Int"].sum()) if "Accrued Int" in isin_rows.columns else 0.0
-                        total_future_interest = 0.0
-                        total_funding_cost = float(isin_rows["Funding Cost"].sum()) if "Funding Cost" in isin_rows.columns else 0.0
-                        total_net_pl = float(isin_rows["Net P/L"].sum()) if "Net P/L" in isin_rows.columns else 0.0
-
-                        # build combined schedule: date -> coupon sum, principal sum
-                        schedule_map = {}
-                        for _, r in isin_rows.iterrows():
-                            mat = pd.Timestamp(r["Maturity Date"])            
-                            init = pd.Timestamp(r["Initial Inv Date"])        
-                            face = float(r["Maturity Value"])
-                            coupon_rate = float(r["Coupon"])
-                            per_coupon = face * coupon_rate / 2.0
-                            sch = coupon_date.get_coupon_schedule(mat, init, frequency=2)
-                            for d in sch:
-                                key = pd.Timestamp(d).normalize()
-                                if key not in schedule_map:
-                                    schedule_map[key] = {"coupon": 0.0, "principal": 0.0}
-                                schedule_map[key]["coupon"] += per_coupon
-                            # principal on maturity
-                            keym = pd.Timestamp(mat).normalize()
-                            schedule_map[keym]["principal"] += face
-
-                        # convert to dataframe
-                        rows = []
-                        for dt, vals in schedule_map.items():
-                            is_passed = dt <= pd.Timestamp(valuation_timestamp).normalize()
-                            rows.append({"Date": dt.date(), "Coupon": vals["coupon"], "Principal": vals["principal"], "Passed": is_passed})
-
-                        sched_df = pd.DataFrame(rows).sort_values("Date")
-                        # compute totals
-                        passed_df = sched_df[sched_df["Passed"]]
-                        future_df = sched_df[~sched_df["Passed"]]
-                        total_future_interest = float(future_df["Coupon"].sum())
-
-                        st.write("**ISIN Summary**")
-                        st.write(f"Total coupons received (since purchase): {total_coupons_received:,.2f}")
-                        st.write(f"Total accrued interest (as of valuation): {total_accrued:,.2f}")
-                        st.write(f"Expected future coupon interest: {total_future_interest:,.2f}")
-                        st.write(f"Total funding cost: {total_funding_cost:,.2f}")
-                        st.write(f"Total Net P/L: {total_net_pl:,.2f}")
-
-                        st.markdown("**Combined Coupon Schedule for ISIN**")
-                        st.dataframe(sched_df.style.format({"Coupon": "{:,.2f}", "Principal": "{:,.2f}"}), use_container_width=True)
-
-                        st.markdown("**Per-deal details for ISIN**")
-                        st.dataframe(isin_rows, use_container_width=True)
-                except Exception as ex:
-                    st.error(f"ISIN deep-dive failed: {ex}")
-        except Exception as e:
-            st.error(f"Deep-dive unavailable: {e}")
-
-        if st.button("Clear portfolio"):
-            st.session_state["portfolio_df"] = pd.DataFrame(columns=EXPECTED_COLUMNS)
-            st.experimental_rerun()
+                    import coupon_date
+                    sel_row = cleaned[
+                        (cleaned["ISIN"] == sel_isin) &
+                        (cleaned["Deal No."].astype(str) == sel_deal)
+                    ].iloc[0]
+                    st.session_state["selected_bond"] = sel_row
+                    st.markdown(f"**Lifecycle — Deal {sel_deal}**")
+                    coupon_date.show_deep_dive(sel_row, valuation_timestamp)
+                except Exception:
+                    st.info("Detailed coupon schedules require the `coupon_date` module.")
 
     except Exception as e:
-        st.error(f"Could not compute valuation: {e}")
-
+        st.error(f"Valuation error: {e}")
 
 if __name__ == "__main__":
     main()
