@@ -657,8 +657,8 @@ def apply_mapping_and_load(raw_df: pd.DataFrame, col_map: dict[str, str]) -> pd.
 
 
 # ── UPLOAD PANEL ──────────────────────────────────────────────────────────────
-def render_sidebar_upload():
-    """Sidebar: template download + file uploader + status pill only. No preview here."""
+def render_upload_panel():
+    """Full guided upload experience: template → upload → map → preview → confirm."""
 
     # Template download
     template_bytes = make_template_excel()
@@ -668,259 +668,188 @@ def render_sidebar_upload():
         file_name="portfolio_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
-        help="Pre-formatted Excel with sample data and column guide",
+        help="Download a pre-formatted Excel template with sample data and column guide",
     )
-    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+
+    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader(
-        "CSV / Excel",
+        "Drop your CSV or Excel file here",
         type=["csv", "xlsx", "xls"],
         label_visibility="visible",
-        help="Columns are auto-detected — exact names not required",
-        key="sidebar_uploader",
+        help="Accepted formats: .csv, .xlsx, .xls — columns will be auto-detected",
     )
 
-    if uploaded_file is not None:
-        # Store raw bytes + filename in session state so main canvas can render preview
-        uploaded_file.seek(0)
-        st.session_state["_pending_upload_bytes"] = uploaded_file.read()
-        st.session_state["_pending_upload_name"]  = uploaded_file.name
-        # Show spinner-style indicator
-        st.markdown("""
-        <div style="background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.2);
-                    border-radius:8px;padding:.5rem .8rem;font-size:.75rem;color:#0EA5E9;margin-top:.4rem;">
-            ↗ Preview loading on main canvas…
-        </div>""", unsafe_allow_html=True)
-    else:
-        # Clear any pending upload if user removed the file
-        if st.session_state.get("_pending_upload_bytes") and st.session_state["portfolio_df"].empty:
-            pass  # keep pending so main canvas can still render it
-
-    # Portfolio loaded status
-    if not st.session_state["portfolio_df"].empty:
-        n = len(st.session_state["portfolio_df"])
-        isins = st.session_state["portfolio_df"]["ISIN"].nunique()
-        st.markdown(f"""
-        <div style="background:#0A1628;border:1px solid rgba(16,185,129,0.25);border-radius:8px;
-                    padding:.6rem .9rem;margin-top:.6rem;display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <div style="font-size:.65rem;color:#475569;text-transform:uppercase;letter-spacing:.08em;">Active portfolio</div>
-                <div style="font-family:'DM Mono',monospace;color:#10B981;font-size:.88rem;font-weight:600;margin-top:1px;">
-                    {n} holdings · {isins} ISINs
+    if uploaded_file is None:
+        # Show format hint when no file loaded
+        if st.session_state["portfolio_df"].empty:
+            st.markdown("""
+            <div style="background:#0A1628;border:1px solid #1E2A3A;border-radius:8px;padding:.75rem 1rem;margin-top:.5rem;">
+                <div style="font-size:.68rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#334155;margin-bottom:.5rem;">Required Columns</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Port. Index</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Instrument</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Deal No.</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">ISIN</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Initial Inv Date</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Maturity Date</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Coupon</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Maturity Value</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">YTM</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Yield</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Market value</span>
+                    <span style="background:#0F172A;color:#64748B;border:1px solid #1E2A3A;border-radius:4px;padding:2px 7px;font-size:.7rem;font-family:monospace;">Duration</span>
+                </div>
+                <div style="font-size:.7rem;color:#334155;margin-top:.5rem;">Column names are auto-detected — exact match not required.</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # Portfolio loaded — show status + clear button
+            n = len(st.session_state["portfolio_df"])
+            isins = st.session_state["portfolio_df"]["ISIN"].nunique() if "ISIN" in st.session_state["portfolio_df"].columns else 0
+            st.markdown(f"""
+            <div style="background:#0A1628;border:1px solid #1E2A3A;border-radius:8px;padding:.75rem 1rem;margin-top:.5rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-size:.68rem;color:#475569;text-transform:uppercase;letter-spacing:.08em;">Loaded</div>
+                        <div style="font-family:'DM Mono',monospace;color:#10B981;font-size:.95rem;font-weight:600;">{n} holdings · {isins} ISINs</div>
+                    </div>
+                    <div style="width:8px;height:8px;border-radius:50%;background:#10B981;box-shadow:0 0 6px #10B981;"></div>
                 </div>
             </div>
-            <div style="width:7px;height:7px;border-radius:50%;background:#10B981;box-shadow:0 0 5px #10B981;"></div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-        if st.button("🗑️ Clear Portfolio", use_container_width=True):
-            st.session_state["portfolio_df"] = pd.DataFrame(columns=EXPECTED_COLUMNS)
-            st.session_state.pop("_pending_upload_bytes", None)
-            st.session_state.pop("_pending_upload_name", None)
-            st.rerun()
+            """, unsafe_allow_html=True)
+            st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
+            if st.button("🗑️ Clear Portfolio", use_container_width=True):
+                st.session_state["portfolio_df"] = pd.DataFrame(columns=EXPECTED_COLUMNS)
+                st.session_state.pop("_upload_mapping", None)
+                st.session_state.pop("_upload_raw", None)
+                st.session_state.pop("_upload_preview", None)
+                st.rerun()
+        return
 
-
-def render_main_upload_preview():
-    """Main canvas: full upload preview, column mapper and confirm. Shown instead of empty state."""
-
-    pending_bytes = st.session_state.get("_pending_upload_bytes")
-    pending_name  = st.session_state.get("_pending_upload_name", "")
-
-    if not pending_bytes:
-        # True empty state — no file pending
-        st.markdown("""
-        <div style="text-align:center;padding:4rem 2rem;">
-            <div style="font-size:3rem;margin-bottom:1rem;opacity:.4;">📂</div>
-            <div style="font-size:1.05rem;font-weight:600;color:#64748B;margin-bottom:.4rem;">No portfolio loaded</div>
-            <div style="font-size:.82rem;color:#334155;">Upload a CSV or Excel file using the sidebar to get started.</div>
-            <div style="margin-top:1.5rem;display:flex;flex-wrap:wrap;justify-content:center;gap:.4rem;">
-        """ + "".join([
-            f'<span style="background:#111827;color:#475569;border:1px solid #1E2A3A;border-radius:4px;'
-            f'padding:3px 9px;font-size:.72rem;font-family:monospace;">{c}</span>'
-            for c in EXPECTED_COLUMNS
-        ]) + """
-            </div>
-            <div style="font-size:.72rem;color:#1E2A3A;margin-top:.6rem;">Column names are auto-detected — exact match not required</div>
-        </div>
-        """, unsafe_allow_html=True)
-        return False  # signals: no portfolio, nothing to show
-
-    # ── Parse the uploaded bytes ──
-    import io as _io
-    buf = _io.BytesIO(pending_bytes)
-    buf.name = pending_name
+    # ── File uploaded: run auto-detection ──
     try:
-        if pending_name.lower().endswith(".csv"):
-            raw_df = pd.read_csv(buf)
-        else:
-            raw_df = pd.read_excel(buf)
+        raw_df = load_raw_file(uploaded_file)
     except Exception as e:
         st.error(f"Could not read file: {e}")
-        st.session_state.pop("_pending_upload_bytes", None)
-        return False
+        return
 
     if raw_df.empty:
         st.error("File appears to be empty.")
-        return False
+        return
 
     file_cols = list(raw_df.columns)
     auto_map  = auto_map_columns(file_cols)
-    unmapped  = [c for c in EXPECTED_COLUMNS if c not in auto_map]
-    mapped    = [c for c in EXPECTED_COLUMNS if c in auto_map]
 
-    # ── Upload preview panel ──
-    st.markdown(f"""
-    <div style="background:#111827;border:1px solid #1E2A3A;border-radius:12px;
-                padding:1.75rem 2rem;margin-bottom:1.5rem;position:relative;overflow:hidden;">
-        <div style="position:absolute;top:0;left:0;right:0;height:2px;
-                    background:linear-gradient(90deg,#0EA5E9,#6366F1);"></div>
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">
-            <div>
-                <div style="font-size:.68rem;font-weight:600;letter-spacing:.12em;
-                            text-transform:uppercase;color:#475569;margin-bottom:.3rem;">File Detected</div>
-                <div style="font-size:1rem;font-weight:600;color:#F1F5F9;font-family:'DM Mono',monospace;">
-                    {pending_name}
-                </div>
-                <div style="font-size:.78rem;color:#64748B;margin-top:.2rem;">
-                    {len(raw_df)} rows · {len(file_cols)} columns found
-                </div>
-            </div>
-            <div style="background:rgba(14,165,233,0.1);border:1px solid rgba(14,165,233,0.25);
-                        border-radius:8px;padding:.5rem 1rem;text-align:center;min-width:100px;">
-                <div style="font-family:'DM Mono',monospace;font-size:1.3rem;font-weight:600;
-                            color:#0EA5E9;">{len(mapped)}/{len(EXPECTED_COLUMNS)}</div>
-                <div style="font-size:.65rem;color:#475569;text-transform:uppercase;letter-spacing:.08em;">cols matched</div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Check which required columns were NOT auto-mapped
+    unmapped = [c for c in EXPECTED_COLUMNS if c not in auto_map]
+    mapped   = [c for c in EXPECTED_COLUMNS if c in auto_map]
 
-    # ── Column mapping section ──
-    if unmapped:
+    # ── Show mapping summary ──
+    all_perfect = len(unmapped) == 0
+    if all_perfect:
         st.markdown(f"""
-        <div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);
-                    border-radius:10px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;">
-            <div style="font-size:.68rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
-                        color:#D97706;margin-bottom:.1rem;">Column Mapping Required</div>
-            <div style="font-size:.78rem;color:#92400E;margin-bottom:1rem;">
-                {len(unmapped)} column(s) could not be auto-detected. Match them to your file's columns below.
-            </div>
-        """, unsafe_allow_html=True)
-
-        file_col_options = ["— not in my file —"] + file_cols
-        cols_per_row = 2
-        req_chunks = [unmapped[i:i+cols_per_row] for i in range(0, len(unmapped), cols_per_row)]
-        for chunk in req_chunks:
-            map_cols = st.columns(len(chunk))
-            for i, req_col in enumerate(chunk):
-                with map_cols[i]:
-                    chosen = st.selectbox(
-                        f"→ **{req_col}**",
-                        options=file_col_options,
-                        key=f"mainmap_{req_col}",
-                    )
-                    if chosen != "— not in my file —":
-                        auto_map[req_col] = chosen
-        st.markdown("</div>", unsafe_allow_html=True)
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);
+                    border-radius:8px;padding:.6rem .9rem;margin:.4rem 0;font-size:.78rem;color:#10B981;">
+            ✓ All {len(EXPECTED_COLUMNS)} columns detected automatically
+        </div>""", unsafe_allow_html=True)
     else:
         st.markdown(f"""
-        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);
-                    border-radius:10px;padding:.9rem 1.5rem;margin-bottom:1.5rem;
-                    display:flex;align-items:center;gap:.75rem;">
-            <div style="width:28px;height:28px;border-radius:50%;background:rgba(16,185,129,0.15);
-                        display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0;">✓</div>
-            <div>
-                <div style="font-size:.82rem;font-weight:600;color:#10B981;">All {len(EXPECTED_COLUMNS)} columns detected automatically</div>
-                <div style="font-size:.72rem;color:#065F46;margin-top:1px;">No manual mapping needed — ready to load.</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);
+                    border-radius:8px;padding:.6rem .9rem;margin:.4rem 0;font-size:.78rem;color:#F59E0B;">
+            ⚠ {len(mapped)} of {len(EXPECTED_COLUMNS)} columns matched — {len(unmapped)} need manual mapping
+        </div>""", unsafe_allow_html=True)
 
-    # Still missing?
+        # Manual mapping UI for unmapped columns
+        st.markdown('<div style="font-size:.7rem;color:#475569;margin:.5rem 0 .25rem;">Map remaining columns:</div>', unsafe_allow_html=True)
+        file_col_options = ["— skip —"] + file_cols
+        for req_col in unmapped:
+            chosen = st.selectbox(
+                f"{req_col}",
+                options=file_col_options,
+                key=f"map_{req_col}",
+                help=f"Which column in your file corresponds to '{req_col}'?",
+            )
+            if chosen != "— skip —":
+                auto_map[req_col] = chosen
+
+    # Still missing after manual mapping?
     still_missing = [c for c in EXPECTED_COLUMNS if c not in auto_map]
     if still_missing:
         st.markdown(f"""
-        <div style="background:rgba(244,63,94,0.06);border:1px solid rgba(244,63,94,0.2);
-                    border-radius:8px;padding:.9rem 1.25rem;margin-bottom:1rem;">
-            <div style="font-size:.78rem;font-weight:600;color:#F43F5E;margin-bottom:.3rem;">
-                Cannot load — {len(still_missing)} required column(s) still unmapped:
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:.3rem;">
-                {"".join(f'<span style="background:#1C0A0A;color:#F87171;border:1px solid rgba(244,63,94,0.3);border-radius:4px;padding:2px 8px;font-size:.72rem;font-family:monospace;">{c}</span>' for c in still_missing)}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        return False
+        <div style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.25);
+                    border-radius:8px;padding:.6rem .9rem;margin:.4rem 0;font-size:.75rem;color:#F87171;">
+            Missing: {", ".join(still_missing)}<br>
+            <span style="color:#64748B;">Map or rename these columns, then re-upload.</span>
+        </div>""", unsafe_allow_html=True)
+        return
 
-    # ── Build preview data ──
+    # ── Build preview ──
     try:
         preview_df = apply_mapping_and_load(raw_df, auto_map)
     except Exception as e:
         st.error(f"Processing error: {e}")
-        return False
+        return
 
     total_raw   = len(raw_df)
     total_valid = len(preview_df)
     dropped     = total_raw - total_valid
 
-    # ── Stats row ──
-    skip_color = "#F59E0B" if dropped > 0 else "#475569"
+    # ── Validation summary ──
     st.markdown(f"""
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
-        <div style="background:#111827;border:1px solid #1E2A3A;border-radius:10px;padding:1rem 1.25rem;text-align:center;">
-            <div style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:600;color:#F1F5F9;">{total_raw}</div>
-            <div style="font-size:.72rem;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Rows in file</div>
+    <div style="background:#0A1628;border:1px solid #1E2A3A;border-radius:8px;
+                padding:.75rem 1rem;margin:.5rem 0;">
+        <div style="font-size:.68rem;font-weight:600;letter-spacing:.1em;
+                    text-transform:uppercase;color:#334155;margin-bottom:.5rem;">Preview</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;text-align:center;">
+            <div>
+                <div style="font-family:'DM Mono',monospace;font-size:1.1rem;
+                            font-weight:600;color:#F1F5F9;">{total_raw}</div>
+                <div style="font-size:.68rem;color:#475569;">Rows in file</div>
+            </div>
+            <div>
+                <div style="font-family:'DM Mono',monospace;font-size:1.1rem;
+                            font-weight:600;color:#10B981;">{total_valid}</div>
+                <div style="font-size:.68rem;color:#475569;">Valid holdings</div>
+            </div>
+            <div>
+                <div style="font-family:'DM Mono',monospace;font-size:1.1rem;
+                            font-weight:600;color:{"#F59E0B" if dropped > 0 else "#475569"};">{dropped}</div>
+                <div style="font-size:.68rem;color:#475569;">Rows skipped</div>
+            </div>
         </div>
-        <div style="background:#111827;border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:1rem 1.25rem;text-align:center;">
-            <div style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:600;color:#10B981;">{total_valid}</div>
-            <div style="font-size:.72rem;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Valid holdings</div>
-        </div>
-        <div style="background:#111827;border:1px solid rgba(245,158,11,{0.25 if dropped > 0 else 0.08});border-radius:10px;padding:1rem 1.25rem;text-align:center;">
-            <div style="font-family:'DM Mono',monospace;font-size:1.6rem;font-weight:600;color:{skip_color};">{dropped}</div>
-            <div style="font-size:.72rem;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-top:.2rem;">Rows skipped</div>
-        </div>
+        {f'<div style="font-size:.7rem;color:#F59E0B;margin-top:.5rem;border-top:1px solid #1E2A3A;padding-top:.4rem;">'
+          f'{dropped} row(s) skipped — missing required fields (dates, rates, or face value). '
+          f'Download the template to see expected formats.</div>' if dropped > 0 else ""}
     </div>
-    {"" if dropped == 0 else f'<div style="background:#1C1A10;border:1px solid #854D0E;border-left:3px solid #F59E0B;border-radius:6px;padding:.6rem 1rem;font-size:.78rem;color:#FCD34D;margin-bottom:1.25rem;">⚠ {dropped} row(s) skipped — missing required fields (dates, coupon, yield or face value). Download the template to see the expected format.</div>'}
     """, unsafe_allow_html=True)
 
     if preview_df.empty:
-        st.error("No valid rows found after processing. Please check your file and re-upload.")
-        return False
+        st.error("No valid rows found after processing. Check your file format.")
+        return
 
-    # ── Full preview table ──
-    st.markdown('<div style="font-size:.68rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#475569;margin-bottom:.5rem;">Data Preview</div>', unsafe_allow_html=True)
-    preview_cols = ["ISIN", "Deal No.", "Instrument", "Initial Inv Date", "Maturity Date", "Coupon", "Maturity Value", "YTM", "Yield"]
-    available = [c for c in preview_cols if c in preview_df.columns]
+    # Sample preview table (first 3 rows, key columns only)
+    preview_cols = ["ISIN", "Deal No.", "Maturity Date", "Coupon", "Maturity Value", "Yield"]
+    available_preview = [c for c in preview_cols if c in preview_df.columns]
     st.dataframe(
-        preview_df[available].style.format({
+        preview_df[available_preview].head(3).style.format({
             "Maturity Value": "{:,.0f}",
             "Coupon": "{:.2%}",
-            "YTM": "{:.2%}",
             "Yield": "{:.2%}",
         }, na_rep="—"),
         use_container_width=True,
-        height=min(60 + total_valid * 35, 420),
+        height=130,
     )
 
-    # ── Confirm / Cancel row ──
-    st.markdown('<div style="height:.75rem"></div>', unsafe_allow_html=True)
-    btn_confirm, btn_cancel = st.columns([3, 1])
-    with btn_confirm:
-        if st.button(f"✓  Load {total_valid} Holdings into Portfolio", use_container_width=True, type="primary"):
-            existing = st.session_state["portfolio_df"]
-            combined = pd.concat([existing, preview_df], ignore_index=True)
-            combined = combined.drop_duplicates(subset=["ISIN", "Deal No."], keep="last").reset_index(drop=True)
-            st.session_state["portfolio_df"] = combined
-            st.session_state.pop("_pending_upload_bytes", None)
-            st.session_state.pop("_pending_upload_name", None)
-            st.rerun()
-    with btn_cancel:
-        if st.button("✕  Cancel", use_container_width=True):
-            st.session_state.pop("_pending_upload_bytes", None)
-            st.session_state.pop("_pending_upload_name", None)
-            st.rerun()
-
-    return True  # signals: preview is active, skip normal dashboard
+    # ── Confirm button ──
+    st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+    if st.button(f"✓ Load {total_valid} Holdings", use_container_width=True, type="primary"):
+        existing = st.session_state["portfolio_df"]
+        combined = pd.concat([existing, preview_df], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["ISIN", "Deal No."], keep="last").reset_index(drop=True)
+        st.session_state["portfolio_df"] = combined
+        st.success(f"✓ {total_valid} holdings loaded successfully")
+        st.rerun()
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
@@ -1055,17 +984,22 @@ def main():
 
         st.markdown('<hr class="sb-divider"/>', unsafe_allow_html=True)
 
-        # ── Data upload (collapsible) ──
-        with st.expander("📁  Upload Portfolio", expanded=st.session_state["portfolio_df"].empty):
-            render_sidebar_upload()
+        # ── Data upload (open in main) ──
+        st.markdown('<div class="nav-label">Data Upload</div>', unsafe_allow_html=True)
+        if st.button("📁 Upload Portfolio", key="open_upload_in_main"):
+            st.session_state["_show_upload_in_main"] = True
 
     valuation_timestamp = pd.Timestamp(valuation_date)
 
-    # ── Gate: no data OR pending upload preview ──
-    has_pending = bool(st.session_state.get("_pending_upload_bytes"))
-    if st.session_state["portfolio_df"].empty or has_pending:
-        render_main_upload_preview()
-        return
+    # ── Show upload panel in main when portfolio is empty or when requested from sidebar
+    show_upload = st.session_state.get("_show_upload_in_main", False) or st.session_state["portfolio_df"].empty
+    if show_upload:
+        render_upload_panel()
+        # If portfolio still empty, stop here so user can interact with the uploader
+        if st.session_state["portfolio_df"].empty:
+            return
+        # Otherwise clear the flag and continue to render dashboard
+        st.session_state.pop("_show_upload_in_main", None)
 
     # ── Compute ──
     try:
