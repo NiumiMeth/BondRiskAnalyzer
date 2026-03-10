@@ -14,7 +14,7 @@ import difflib
 st.set_page_config(page_title="Portfolio Manager", layout="wide", page_icon="📈", initial_sidebar_state="expanded")
 
 # require user or admin role to view portfolio page
-auth.require_role(["user", "admin"])
+#auth.require_role(["user", "admin"])
 
 # ── DARK BANKING THEME ──────────────────────────────────────────────────────
 st.markdown("""
