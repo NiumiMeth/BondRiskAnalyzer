@@ -866,140 +866,28 @@ def main():
     if "portfolio_df" not in st.session_state:
         st.session_state["portfolio_df"] = pd.DataFrame(columns=EXPECTED_COLUMNS)
 
-    # ── Sidebar ──────────────────────────────────────────────────────────────
-    with st.sidebar:
-        # Extra sidebar styles
-        st.markdown("""
-        <style>
-        [data-testid="stSidebar"] { padding-top: 0 !important; }
-        [data-testid="stSidebar"] > div:first-child { padding: 1.2rem 1rem 2rem; }
+    # ── Header Controls: Valuation Date ──
+    # Clean row for the Date (upload moved to upload panel when portfolio empty)
+    tcols = st.columns([6, 2])
 
-        /* Nav links */
-        .nav-section { margin-bottom: 1.4rem; }
-        .nav-label {
-            font-size: 0.62rem;
-            font-weight: 600;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-            color: #334155;
-            margin-bottom: 0.4rem;
-            padding-left: 4px;
-        }
-        .nav-link {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 0.5rem 0.75rem;
-            border-radius: 7px;
-            font-size: 0.83rem;
-            font-weight: 500;
-            color: #94A3B8;
-            cursor: pointer;
-            transition: background 0.12s, color 0.12s;
-            text-decoration: none;
-            margin-bottom: 2px;
-        }
-        .nav-link:hover { background: #1E2A3A; color: #E2E8F0; }
-        .nav-link.active { background: rgba(14,165,233,0.12); color: #0EA5E9; }
-        .nav-link .icon { font-size: 0.9rem; width: 18px; text-align: center; }
+    with tcols[1]:
+        # Moved Valuation Date here from the hidden panel
+        if "valuation_date" not in st.session_state:
+            st.session_state["valuation_date"] = date.today()
+        st.date_input("Valuation Date", key="valuation_date", label_visibility="visible")
 
-        /* Divider */
-        .sb-divider {
-            border: none;
-            border-top: 1px solid #1E2A3A;
-            margin: 1rem 0;
-        }
-
-        /* Portfolio status pill */
-        .port-status {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: #0F172A;
-            border: 1px solid #1E2A3A;
-            border-radius: 8px;
-            padding: 0.6rem 0.9rem;
-            margin-bottom: 1rem;
-        }
-        .port-status-label { font-size: 0.72rem; color: #475569; }
-        .port-status-value { font-size: 0.82rem; font-weight: 600; color: #E2E8F0; font-family: 'DM Mono', monospace; }
-
-        /* Logout button */
-        [data-testid="stSidebar"] .stButton > button {
-            background: transparent !important;
-            border: 1px solid #1E2A3A !important;
-            color: #64748B !important;
-            font-size: 0.78rem !important;
-            width: 100% !important;
-            border-radius: 7px !important;
-            padding: 0.4rem !important;
-        }
-        [data-testid="stSidebar"] .stButton > button:hover {
-            border-color: #F43F5E !important;
-            color: #F43F5E !important;
-            background: rgba(244,63,94,0.06) !important;
-        }
-
-        /* File uploader */
-        [data-testid="stSidebar"] [data-testid="stFileUploader"] {
-            background: #0F172A;
-            border: 1px dashed #1E2A3A;
-            border-radius: 8px;
-            padding: 0.5rem;
-        }
-
-        /* Success/error in sidebar */
-        [data-testid="stSidebar"] .stAlert { font-size: 0.78rem !important; }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # ── User profile card ──
-        auth.render_sidebar_user_panel()
-
-        # ── Navigation ──
-        st.markdown("""
-        <div class="nav-section">
-            <div class="nav-label">Navigation</div>
-            <div class="nav-link active"><span class="icon">📊</span> Portfolio Dashboard</div>
-            <div class="nav-link"><span class="icon">📋</span> Holdings</div>
-            <div class="nav-link"><span class="icon">📈</span> Scenario Analysis</div>
-            <div class="nav-link"><span class="icon">🔍</span> Bond Deep-Dive</div>
-        </div>
-        <hr class="sb-divider"/>
-        """, unsafe_allow_html=True)
-
-        # ── Valuation date ──
-        st.markdown('<div class="nav-label">Valuation Date</div>', unsafe_allow_html=True)
-        valuation_date = st.date_input("", value=date.today(), label_visibility="collapsed")
-
-        # ── Portfolio status summary ──
-        if not st.session_state["portfolio_df"].empty:
-            n = len(st.session_state["portfolio_df"])
-            st.markdown(f"""
-            <div class="port-status">
-                <span class="port-status-label">Holdings loaded</span>
-                <span class="port-status-value">{n}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown('<hr class="sb-divider"/>', unsafe_allow_html=True)
-
-        # ── Data upload (open in main) ──
-        st.markdown('<div class="nav-label">Data Upload</div>', unsafe_allow_html=True)
-        if st.button("📁 Upload Portfolio", key="open_upload_in_main"):
-            st.session_state["_show_upload_in_main"] = True
-
+    # valuation_date comes from session state now
+    valuation_date = st.session_state.get("valuation_date", date.today())
     valuation_timestamp = pd.Timestamp(valuation_date)
 
-    # ── Show upload panel in main when portfolio is empty or when requested from sidebar
-    show_upload = st.session_state.get("_show_upload_in_main", False) or st.session_state["portfolio_df"].empty
+    # ── Show upload panel in main when portfolio is empty
+    show_upload = st.session_state["portfolio_df"].empty
     if show_upload:
         render_upload_panel()
         # If portfolio still empty, stop here so user can interact with the uploader
         if st.session_state["portfolio_df"].empty:
             return
-        # Otherwise clear the flag and continue to render dashboard
-        st.session_state.pop("_show_upload_in_main", None)
+        # Otherwise continue to render dashboard
 
     # ── Compute ──
     try:
