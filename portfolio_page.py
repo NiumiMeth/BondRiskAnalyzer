@@ -1082,10 +1082,22 @@ def main():
         ])
 
         fmt = {
-            "Maturity Value": "{:,.2f}", "Clean Value": "{:,.2f}",
-            "Full Value": "{:,.2f}", "Book Value": "{:,.2f}",
-            "Gain/Loss": "{:,.2f}", "Coupon": "{:.2%}",
-            "YTM": "{:.2%}", "Yield": "{:.2%}",
+            "Maturity Value": "{:,.0f}",
+            "Market value": "{:,.2f}",
+            "Initial Inv Value": "{:,.2f}",
+            "Clean Value": "{:,.2f}",
+            "Full Value": "{:,.2f}",
+            "Book Value": "{:,.2f}",
+            "Gain/Loss": "{:,.2f}",
+            "Price 100%": "{:,.4f}",
+            "Clean Price": "{:,.4f}",
+            "Accrued Int": "{:,.2f}",
+            "Coupon": "{:.2%}",
+            "YTM": "{:.2%}",
+            "Yield": "{:.2%}",
+            "Initial Inv Date": "{:%Y-%m-%d}",
+            "Maturity Date": "{:%Y-%m-%d}",
+            "Deal No.": "{:,.0f}",
         }
 
         # TAB 1
