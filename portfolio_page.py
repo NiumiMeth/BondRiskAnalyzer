@@ -13,6 +13,9 @@ import difflib
 
 st.set_page_config(page_title="Portfolio Manager", layout="wide", page_icon="📈", initial_sidebar_state="expanded")
 
+# Improve mobile scaling on phones
+st.markdown('<meta name="viewport" content="width=device-width, initial-scale=1">', unsafe_allow_html=True)
+
 # require user or admin role to view portfolio page
 #auth.require_role(["user", "admin"])
 
@@ -279,10 +282,34 @@ section[data-testid="stSidebar"] {
 # Mobile-specific fixes: avoid characters stacking and make KPI cards responsive
 st.markdown("""
 <style>
-@media (max-width: 700px) {
+@media (max-width: 900px) {
+    /* Stack KPI cards vertically on smaller screens */
     .kpi-grid { grid-template-columns: 1fr !important; }
-    .kpi-card { padding: 0.9rem !important; }
-    .kpi-value { font-size: 1.4rem !important; word-break: normal !important; }
+    .kpi-card { padding: 0.8rem 0.9rem !important; }
+    .kpi-value { font-size: 1.25rem !important; word-break: normal !important; }
+
+    /* Reduce overall page padding and make header stack */
+    .block-container { padding: 1rem !important; }
+    .dash-header { flex-direction: column; align-items: flex-start; gap: .45rem; }
+    .dash-title { font-size: 1.15rem !important; }
+
+    /* Make Streamlit columns collapse to full-width blocks */
+    .streamlit-expanderContent, .stTabs [data-baseweb="tab-panel"], .stDataFrame, .stPlotlyChart, .stMetric {
+        width: 100% !important; display: block !important;
+    }
+
+    /* Reduce plot heights on narrow screens so charts fit without scrolling */
+    .stPlotlyChart div[role="figure"] { height: 220px !important; }
+
+    /* Sidebar becomes full width on very small viewports (so controls are easier to tap) */
+    [data-testid="stSidebar"] { min-width: 0 !important; width: 100% !important; }
+}
+
+@media (max-width: 700px) {
+    .kpi-value { font-size: 1.1rem !important; }
+    .dash-logo { font-size: 0.95rem !important; }
+    .dash-badge { font-size: 0.65rem !important; padding: 4px 8px !important; }
+    .stButton > button, .stDownloadButton > button { padding: 0.45rem 0.8rem !important; font-size: 0.82rem !important; }
 }
 
 [data-testid="stDataFrameContainer"] table {
